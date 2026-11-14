@@ -106,9 +106,9 @@ impl ProjectView {
             .trailing(DiffStat::new(file.added, file.removed))
             .selected(selected)
             .hovered(self.hovered.as_ref() == Some(&key))
-            .on_click(view_callback(cx, {
+            .on_click(view_callback_with(cx, {
                 let key = key.clone();
-                move |this: &mut Self, _: &mut Window, cx: &mut Context<Self>| {
+                move |this: &mut Self, _: usize, _: &mut Window, cx: &mut Context<Self>| {
                     this.select(key.clone(), None, cx)
                 }
             }))
@@ -145,9 +145,8 @@ impl ProjectView {
             ElementId::Name(format!("{}-symbol-{index}", element_name(key)).into()),
             symbol.name.clone(),
         )
+        // One step in, past the file's arrow, so the symbol's icon lines up under the file's ring.
         .depth(1)
-        // Past the file's arrow, so the symbol's icon lines up under the file's ring.
-        .indent(ListRow::SLOT)
         .compact()
         .muted()
         .when(symbol.kind != SymbolKind::Heading, ListRow::code)
@@ -158,9 +157,9 @@ impl ProjectView {
         )
         .trailing(DiffStat::new(symbol.added, symbol.removed))
         .selected(selected)
-        .on_click(view_callback(cx, {
+        .on_click(view_callback_with(cx, {
             let key = key.clone();
-            move |this: &mut Self, _: &mut Window, cx: &mut Context<Self>| {
+            move |this: &mut Self, _: usize, _: &mut Window, cx: &mut Context<Self>| {
                 this.select(key.clone(), Some(index), cx)
             }
         }))
