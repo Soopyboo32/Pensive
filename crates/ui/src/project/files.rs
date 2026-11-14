@@ -9,7 +9,7 @@ use crate::{view_callback, view_callback_with};
 
 use super::{
     FileKey, FileLayout, ProjectView, Source,
-    tree::{TreeRow, tree},
+    tree::{Entry, Open, RowKind, Shape, rows},
 };
 
 impl ProjectView {
@@ -28,20 +28,27 @@ impl ProjectView {
                 .iter()
                 .map(|file| self.file_row(key(file), file, 0, cx).into_any_element())
                 .collect(),
-            FileLayout::Tree => tree(files.iter().map(|file| file.path.as_path()))
-                .into_iter()
-                .enumerate()
-                .map(|(position, row)| match row {
-                    TreeRow::Folder { depth, name } => ListRow::new(("folder", position), name)
-                        .depth(depth)
-                        .disclosure(true)
-                        .muted()
-                        .into_any_element(),
-                    TreeRow::File { depth, index } => self
-                        .file_row(key(&files[index]), &files[index], depth, cx)
-                        .into_any_element(),
-                })
-                .collect(),
+            FileLayout::Tree => {
+                let shape = Shape {
+                    open: Open::All,
+                    fold: true,
+                    sort: None,
+                };
+                rows(files.iter().map(|file| Entry::file(&file.path)), &shape)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, row)| match row.kind {
+                        RowKind::Folder { .. } => ListRow::new(("folder", position), row.name)
+                            .depth(row.depth)
+                            .disclosure(true)
+                            .muted()
+                            .into_any_element(),
+                        RowKind::File { index } => self
+                            .file_row(key(&files[index]), &files[index], row.depth, cx)
+                            .into_any_element(),
+                    })
+                    .collect()
+            }
             FileLayout::Symbols => {
                 let mut rows = Vec::new();
                 for file in files {

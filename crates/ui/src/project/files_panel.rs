@@ -13,11 +13,12 @@ use theme::{ActiveTheme, ThemeColors, Typeset, dp};
 
 use super::{
     Control, ProjectView,
-    file_tree::{RowKind, TreeOptions, ancestors, rows},
+    file_tree::{TreeOptions, ancestors, rows},
     files_options::{
         DOTFILES, FOLD, FOLLOW, GIT_STATUS, GUIDES, GitStatus, Guides, IGNORED, OPEN_WITH,
         OpenWith, SORT,
     },
+    tree::RowKind,
 };
 use crate::{PANEL, view_callback, view_callback_with};
 
@@ -168,7 +169,7 @@ impl ProjectView {
             .enumerate()
             .map(|(index, row)| {
                 let status = match &row.kind {
-                    RowKind::File => statuses.get(&row.path).copied(),
+                    RowKind::File { .. } => statuses.get(&row.path).copied(),
                     RowKind::Folder { .. } => folder_status(&statuses, &row.path),
                 };
                 let status = status.and_then(|status| tree_status(status, style));
@@ -185,7 +186,7 @@ impl ProjectView {
                             },
                         ))
                     }),
-                    RowKind::File => FileTreeRow::file(index, row.name, row.depth)
+                    RowKind::File { .. } => FileTreeRow::file(index, row.name, row.depth)
                         .selected(selected.as_ref() == Some(&row.path))
                         .on_click(view_callback_with(
                             cx,
