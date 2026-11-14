@@ -15,7 +15,7 @@ use settings::Settings;
 use theme::{ActiveTheme, Density, Theme, Typeset, dp};
 
 use crate::{
-    key_binding, text_editing, text_input::TextInput, view_callback,
+    key_binding, text_editing, text_input::TextInput, view_callback_with,
     window_frame::draws_window_controls,
 };
 
@@ -238,9 +238,10 @@ impl MockBrowser {
                                     .child(self.matching(subject, cx).len().to_string()),
                             )
                             .selected(index == self.selected)
-                            .on_click(view_callback(cx, move |this: &mut Self, _, cx| {
-                                this.select(index, cx)
-                            })),
+                            .on_click(view_callback_with(
+                                cx,
+                                move |this: &mut Self, _: usize, _, cx| this.select(index, cx),
+                            )),
                     )
                     .into_any_element(),
             );

@@ -8,7 +8,6 @@ mod command_palette;
 mod diff;
 mod diff_stat;
 mod fade_text;
-mod file_tree_row;
 #[cfg(feature = "mocks")]
 mod gallery;
 mod icon;
@@ -26,6 +25,7 @@ mod segmented_control;
 mod select;
 mod setting_row;
 mod settings_heading;
+mod status_mark;
 mod status_ring;
 mod stepper;
 mod tab_strip;
@@ -54,7 +54,6 @@ pub use command_palette::{
 pub use diff::{DiffRow, LineKind};
 pub use diff_stat::DiffStat;
 pub use fade_text::FadeText;
-pub use file_tree_row::{FileTreeRow, TreeStatus};
 #[cfg(feature = "mocks")]
 pub use gallery::Gallery;
 pub use icon::{Icon, IconName};
@@ -71,6 +70,7 @@ pub use segmented_control::SegmentedControl;
 pub use select::Select;
 pub use setting_row::SettingRow;
 pub use settings_heading::{CategoryHeading, PageHeading};
+pub use status_mark::StatusMark;
 pub use status_ring::{RingFill, StatusRing};
 pub use stepper::Stepper;
 pub use tab_strip::TabStrip;
@@ -138,7 +138,6 @@ pub fn mocks() -> Vec<mock::Mock> {
         status_ring::mocks(),
         diff_stat::mocks(),
         list_row::mocks(),
-        file_tree_row::mocks(),
         tooltip::mocks(),
         timeline_row::mocks(),
         title_bar::mocks(),
@@ -226,8 +225,9 @@ mod tests {
                     .into_any_element()
             }),
             ("ListRow", |clicks| {
+                let count = count(clicks);
                 ListRow::new("control", "src/lib.rs")
-                    .on_click(count(clicks))
+                    .on_click(move |_, window, cx| count(window, cx))
                     .into_any_element()
             }),
         ];

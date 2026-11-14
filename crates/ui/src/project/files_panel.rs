@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use components::{FileTreeRow, Icon, IconButton, IconName, Kbd, TreeStatus};
+use components::{Icon, IconButton, IconName, Kbd, ListRow, StatusMark};
 use gpui::{AnyElement, App, Context, Focusable, Hsla, Window, div, prelude::*};
 use model::{FileKey, FileStatus, Source};
 use theme::{ActiveTheme, ThemeColors, Typeset, dp};
@@ -168,25 +168,37 @@ impl ProjectView {
         rows.into_iter()
             .enumerate()
             .map(|(index, row)| {
-                let status = match &row.kind {
-                    RowKind::File { .. } => statuses.get(&row.path).copied(),
-                    RowKind::Folder { .. } => folder_status(&statuses, &row.path),
+                let folder = matches!(row.kind, RowKind::Folder { .. });
+                let status = if folder {
+                    folder_status(&statuses, &row.path)
+                } else {
+                    statuses.get(&row.path).copied()
                 };
-                let status = status.and_then(|status| tree_status(status, style));
                 let path = row.path.clone();
+                let base = ListRow::new(index, row.name)
+                    .depth(row.depth)
+                    .dimmed(row.ignored)
+                    .guides(guides);
+                let base = match status.and_then(|status| status_color(status, style)) {
+                    Some(TreeColor::Name(color)) if !folder => base.label_color(color),
+                    Some(TreeColor::Name(color)) => base.trailing(StatusMark::Dot(color)),
+                    Some(TreeColor::Letter(letter, color)) => {
+                        base.trailing(StatusMark::Letter(letter, color))
+                    }
+                    None => base,
+                };
                 match row.kind {
-                    RowKind::Folder { open, openable } => FileTreeRow::folder(
-                        index, row.name, row.depth, open,
-                    )
-                    .when(openable, |folder| {
-                        folder.on_click(view_callback_with(
-                            cx,
-                            move |this: &mut Self, _: usize, _, cx| {
-                                this.toggle_folder(path.clone(), cx)
-                            },
-                        ))
-                    }),
-                    RowKind::File { .. } => FileTreeRow::file(index, row.name, row.depth)
+                    RowKind::Folder { open, openable } => {
+                        base.disclosure(open).muted().when(openable, |folder| {
+                            folder.on_click(view_callback_with(
+                                cx,
+                                move |this: &mut Self, _: usize, _, cx| {
+                                    this.toggle_folder(path.clone(), cx)
+                                },
+                            ))
+                        })
+                    }
+                    RowKind::File { .. } => base
                         .selected(selected.as_ref() == Some(&row.path))
                         .on_click(view_callback_with(
                             cx,
@@ -201,9 +213,6 @@ impl ProjectView {
                             },
                         )),
                 }
-                .status(status)
-                .ignored(row.ignored)
-                .guides(guides)
                 .into_any_element()
             })
             .collect()
@@ -301,8 +310,16 @@ fn folder_status(statuses: &HashMap<PathBuf, FileStatus>, folder: &Path) -> Opti
     }
 }
 
+/// How a status shows in the tree.
+enum TreeColor {
+    /// A file's name in the status color, or a dot after a folder's.
+    Name(fn(&ThemeColors) -> Hsla),
+    /// A letter after the name, such as M.
+    Letter(char, fn(&ThemeColors) -> Hsla),
+}
+
 /// How `status` shows in the tree, or nothing with Git status off.
-fn tree_status(status: FileStatus, style: GitStatus) -> Option<TreeStatus> {
+fn status_color(status: FileStatus, style: GitStatus) -> Option<TreeColor> {
     let (letter, color): (char, fn(&ThemeColors) -> Hsla) = match status {
         FileStatus::Added => ('A', |colors| colors.diff_added),
         FileStatus::Untracked => ('U', |colors| colors.diff_added),
@@ -312,8 +329,8 @@ fn tree_status(status: FileStatus, style: GitStatus) -> Option<TreeStatus> {
         FileStatus::Conflicted => ('C', |colors| colors.diff_removed),
     };
     match style {
-        GitStatus::Color => Some(TreeStatus::Color(color)),
-        GitStatus::Letter => Some(TreeStatus::Letter(letter, color)),
+        GitStatus::Color => Some(TreeColor::Name(color)),
+        GitStatus::Letter => Some(TreeColor::Letter(letter, color)),
         GitStatus::Off => None,
     }
 }

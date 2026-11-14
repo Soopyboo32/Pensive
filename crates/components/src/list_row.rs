@@ -1,37 +1,32 @@
 //! One row of a list or tree: indent guides, a disclosure arrow, a leading mark, a label and
-//! trailing content, with hover and selected states.
+//! trailing content, with hover and selected states. Every level of a tree steps in by one arrow
+//! and its gap, so a child starts where its parent's label starts.
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, ElementId, SharedString, Window, deferred, div, prelude::*};
-use theme::{ActiveTheme, Dp, HAIRLINE, Typeset, dp};
+use gpui::{AnyElement, App, ElementId, Hsla, SharedString, Window, deferred, div, prelude::*};
+use theme::{ActiveTheme, Density, Dp, HAIRLINE, ThemeColors, Typeset, dp};
 
-use crate::{Callback, Icon, IconName, OnClick as _, callback};
-
-/// The width of a disclosure arrow. A leading mark is centered in the same width, so arrows,
-/// marks and guides share one center line.
-const MARK: Dp = dp(12.);
-/// How far each level of a tree moves in: one disclosure arrow's width.
-const INDENT: Dp = MARK;
-/// Where a guide sits in its indent column: under the parent's arrow.
-const GUIDE_OFFSET: Dp = dp(5.5);
+use crate::{Callback, Icon, IconName, callback};
 
 #[derive(IntoElement)]
 pub struct ListRow {
     id: ElementId,
     depth: usize,
-    indent: Dp,
+    guides: bool,
     disclosure: Option<bool>,
     leading: Option<AnyElement>,
     label: SharedString,
+    label_color: Option<fn(&ThemeColors) -> Hsla>,
     code: bool,
     muted: bool,
+    dimmed: bool,
     compact: bool,
     trailing: Option<AnyElement>,
     below: Option<AnyElement>,
     selected: bool,
     hovered: bool,
-    on_click: Option<Callback<()>>,
+    on_click: Option<Callback<usize>>,
     on_disclosure: Option<Callback<()>>,
     on_hover: Option<Callback<bool>>,
 }
@@ -41,12 +36,14 @@ impl ListRow {
         Self {
             id: id.into(),
             depth: 0,
-            indent: INDENT,
+            guides: true,
             disclosure: None,
             leading: None,
             label: label.into(),
+            label_color: None,
             code: false,
             muted: false,
+            dimmed: false,
             compact: false,
             trailing: None,
             below: None,
@@ -58,19 +55,27 @@ impl ListRow {
         }
     }
 
-    /// The slot an arrow or a leading mark takes, including its gap to what follows. Indenting a
-    /// row by it lines its leading mark up under its parent's.
-    pub const SLOT: Dp = dp(18.);
+    /// A disclosure arrow, and the size a leading mark is centered in: half a row, so it shrinks
+    /// with the density.
+    fn mark(density: &Density) -> Dp {
+        density.row_height / 2.
+    }
 
-    /// How many levels in, each with a guide under its parent's arrow.
+    /// The slot an arrow or a leading mark takes, with its gap to what follows, and how far each
+    /// level of a tree steps in: 20 dp in Calm and 16 in Dense.
+    pub fn step(density: &Density) -> Dp {
+        density.row_height - dp(8.)
+    }
+
+    /// How many levels in, each one step.
     pub fn depth(mut self, depth: usize) -> Self {
         self.depth = depth;
         self
     }
 
-    /// Overrides the 12 px indent, such as to line a child up under its parent's leading mark.
-    pub fn indent(mut self, indent: Dp) -> Self {
-        self.indent = indent;
+    /// A line under each ancestor's arrow. On by default.
+    pub fn guides(mut self, guides: bool) -> Self {
+        self.guides = guides;
         self
     }
 
@@ -80,9 +85,15 @@ impl ListRow {
         self
     }
 
-    /// A mark before the label, such as a status ring or an icon, in an 18 px slot.
+    /// A mark before the label, such as a status ring or an icon, centered in one step.
     pub fn leading(mut self, leading: impl IntoElement) -> Self {
         self.leading = Some(leading.into_any_element());
+        self
+    }
+
+    /// The label's color, such as a file's Git status, unless the row is dimmed.
+    pub fn label_color(mut self, color: fn(&ThemeColors) -> Hsla) -> Self {
+        self.label_color = Some(color);
         self
     }
 
@@ -101,6 +112,12 @@ impl ListRow {
     /// The label in `text_muted` unless the row is selected, such as for folders.
     pub fn muted(mut self) -> Self {
         self.muted = true;
+        self
+    }
+
+    /// The label and arrow in `text_disabled`, for what `.gitignore` leaves out.
+    pub fn dimmed(mut self, dimmed: bool) -> Self {
+        self.dimmed = dimmed;
         self
     }
 
@@ -126,8 +143,9 @@ impl ListRow {
         self
     }
 
-    pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.on_click = Some(callback(handler));
+    /// Called with the click count, so a view can act on the second click.
+    pub fn on_click(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_click = Some(Rc::new(handler));
         self
     }
 
@@ -149,22 +167,22 @@ impl RenderOnce for ListRow {
         let theme = cx.theme();
         let colors = &theme.colors;
         let density = cx.density();
+        let (mark, step) = (Self::mark(density), Self::step(density));
         let height = if self.compact {
             density.row_height - dp(4.)
         } else {
             density.row_height
         };
-        let label_color = if self.selected {
-            colors.text_strong
-        } else if self.muted {
-            colors.text_muted
-        } else {
-            colors.text
+        let label_color = match self.label_color {
+            _ if self.dimmed => colors.text_disabled,
+            Some(color) => color(colors),
+            None if self.selected => colors.text_strong,
+            None if self.muted => colors.text_muted,
+            None => colors.text,
         };
-        let label_start = self.indent * self.depth as f32
-            + Self::SLOT
-                * (usize::from(self.disclosure.is_some()) + usize::from(self.leading.is_some()))
-                    as f32;
+        let slots = usize::from(self.disclosure.is_some()) + usize::from(self.leading.is_some());
+        let label_start = step * (self.depth + slots) as f32;
+        let slot = || div().flex().flex_none().items_center().w(step);
 
         div()
             .id(self.id)
@@ -184,31 +202,37 @@ impl RenderOnce for ListRow {
                     row.hover(|row| row.bg(colors.surface_raised))
                 }
             })
-            .children((0..self.depth).map(|_| {
+            .child(
                 div()
                     .relative()
                     .flex_none()
                     .self_stretch()
-                    .w(self.indent)
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .bottom_0()
-                            .left(GUIDE_OFFSET)
-                            .w(HAIRLINE)
-                            .bg(colors.border_subtle),
-                    )
-            }))
+                    .w(step * self.depth as f32)
+                    .when(self.guides, |indent| {
+                        indent.children((0..self.depth).map(|level| {
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(step * level as f32 + mark / 2.)
+                                .w(HAIRLINE)
+                                .bg(colors.border_subtle)
+                        }))
+                    }),
+            )
             .children(self.disclosure.map(|open| {
-                let arrow = div().id("disclosure").flex_none().w(Self::SLOT).child(
+                let arrow = slot().id("disclosure").child(
                     Icon::new(if open {
                         IconName::ChevronDown
                     } else {
                         IconName::ChevronRight
                     })
-                    .size(MARK)
-                    .color(colors.text_faint),
+                    .size(mark)
+                    .color(if self.dimmed {
+                        colors.text_disabled
+                    } else {
+                        colors.text_faint
+                    }),
                 );
                 match self.on_disclosure.clone() {
                     Some(handler) => arrow
@@ -221,18 +245,20 @@ impl RenderOnce for ListRow {
                 }
             }))
             .children(self.leading.map(|leading| {
-                div().flex_none().w(Self::SLOT).child(
+                slot().child(
                     div()
                         .flex()
                         .items_center()
                         .justify_center()
-                        .w(MARK)
+                        .w(mark)
                         .child(leading),
                 )
             }))
             .child(
                 div()
-                    .flex_none()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
                     .whitespace_nowrap()
                     .when(self.code, |label| {
                         label.font_family(theme.fonts.code.clone())
@@ -245,8 +271,10 @@ impl RenderOnce for ListRow {
                     .text_color(label_color)
                     .child(self.label),
             )
-            .child(div().flex_1().min_w_2())
-            .children(self.trailing)
+            .children(
+                self.trailing
+                    .map(|trailing| div().flex_none().ml_2().child(trailing)),
+            )
             .children(self.below.map(|below| {
                 div()
                     .absolute()
@@ -255,7 +283,12 @@ impl RenderOnce for ListRow {
                     .mt_0p5()
                     .child(deferred(below).priority(1))
             }))
-            .on_click_callback(self.on_click)
+            .when_some(self.on_click, |row, handler| {
+                row.on_click(move |event, window, cx| {
+                    cx.stop_propagation();
+                    handler(event.click_count(), window, cx)
+                })
+            })
             .when_some(self.on_hover, |row, handler| {
                 row.on_hover(move |hovered, window, cx| handler(*hovered, window, cx))
             })
@@ -264,7 +297,34 @@ impl RenderOnce for ListRow {
 
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
-    use crate::{DiffStat, RingFill, StatusRing, Tooltip, gallery::Panel};
+    use crate::{DiffStat, RingFill, StatusMark, StatusRing, Tooltip, gallery::Panel};
+
+    fn tree() -> Vec<ListRow> {
+        let folder = |id: &'static str, name: &'static str, depth, open| {
+            ListRow::new(id, name).depth(depth).disclosure(open).muted()
+        };
+        let file =
+            |id: &'static str, name: &'static str, depth| ListRow::new(id, name).depth(depth);
+        vec![
+            folder("assets", "assets", 0, false),
+            folder("crates", "crates", 0, true)
+                .trailing(StatusMark::Dot(|colors| colors.diff_modified)),
+            folder("src", "components/src", 1, true)
+                .trailing(StatusMark::Dot(|colors| colors.diff_modified)),
+            file("icon", "icon.rs", 2),
+            file("palette", "palette.rs", 2)
+                .label_color(|colors| colors.diff_modified)
+                .selected(true),
+            file("stepper", "stepper.rs", 2).label_color(|colors| colors.diff_added),
+            file("toggle", "toggle.rs", 2).hovered(true),
+            folder("theme", "theme", 1, false),
+            file("cargo", "Cargo.toml", 1),
+            folder("target", "target", 0, false).dimmed(true),
+            file("lock", "Cargo.lock", 0)
+                .trailing(StatusMark::Letter('M', |colors| colors.diff_modified)),
+            file("readme", "README.md", 0),
+        ]
+    }
 
     vec![
         mock::Mock::component("list_row", "gallery", || {
@@ -313,12 +373,21 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                                 file("h", "root.rs", RingFill::Empty).disclosure(true),
                                 ListRow::new("i", "Pensive::render")
                                     .depth(1)
-                                    .indent(ListRow::SLOT)
                                     .compact()
                                     .code()
                                     .leading(crate::Icon::new(IconName::Braces).size(dp(12.)))
                                     .trailing(DiffStat::new(9, 2)),
                             ]),
+                        ),
+                    ],
+                )
+                .section(
+                    "A project's tree",
+                    [
+                        ("Status as color, a letter on Cargo.lock", column(tree())),
+                        (
+                            "Without guides",
+                            column(tree().into_iter().map(|row| row.guides(false)).collect()),
                         ),
                     ],
                 )
@@ -339,6 +408,6 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                 )
                 .into_any_element()
         })
-        .size(960., 640.),
+        .size(960., 980.),
     ]
 }
