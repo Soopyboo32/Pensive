@@ -45,7 +45,7 @@ Calm and Dense both ship, as a setting, with Calm as the default. Density change
 
 Zoom scales everything in every window, from 80 to 200%. Ctrl = and Ctrl - step it, and Ctrl 0 resets it. Code size is its own setting, in pixels at 100% zoom, so zoom still scales it. It follows Density until it's set.
 
-Ordered settings such as zoom use a stepper. The wheel steps it only once the pointer has rested on it for a second without scrolling, so scrolling a page past one never changes it.
+Zoom and code size use a stepper, which the Controls section covers along with how the wheel changes it.
 
 ## Diffs
 
@@ -70,7 +70,9 @@ Saving is a setting. Auto, the default, saves a second after typing stops and wh
 
 Navigation sits on the top and left edges only. Nothing docks on the right, so content is never boxed in from both sides.
 
-Projects switch from the title bar or from the command palette. There is no project rail by default, because many people only ever work in one or two projects.
+A rail of icons runs down the window's left edge in every view. Its top holds the project's panels: Changes, Files, Search and History. Search and History answer with a notice until they're built. The gear sits at its foot and opens Settings.
+
+Projects switch from the title bar or from the command palette. There is no rail of projects by default, because many people only ever work in one or two projects.
 
 Breadcrumbs separate levels with a chevron, never a slash. They are used for project › branch and for file paths.
 
@@ -80,21 +82,21 @@ The app owns the projects, Settings and the theme. Each window has its own comma
 
 The first window opens maximized. A window opened from it, with Ctrl Enter or Ctrl-click on the gear, opens windowed on the same display, so it doesn't hide the first.
 
-A window has a title bar, the sidebar on the left and the main view. There is no status bar.
+A window has a title bar, the rail and its panel on the left, and the main view. There is no status bar.
 
-Pensive draws its own title bar. It holds project › branch as a breadcrumb, the palette trigger in the middle, the settings gear and the window controls. Clicking a crumb opens the palette scoped with `project:` or `branch:`. macOS keeps its own window buttons on the left. So does a Linux compositor that decorates windows itself, and Pensive's title bar then sits under the compositor's.
+Pensive draws its own title bar. It holds project › branch as a breadcrumb on the left. On the right are the activity, the notice badge, the Run button and the window controls. The middle stays empty and draggable, held for buttons that plugins add. There is no palette field, since Ctrl K opens the palette from anywhere. Clicking a crumb opens the palette scoped with `project:` or `branch:`. macOS keeps its own window buttons on the left. So does a Linux compositor that decorates windows itself, and Pensive's title bar then sits under the compositor's.
 
 Overlays such as tooltips draw above every pane, so no pane clips them.
 
-## Sidebar
+## Changes panel
 
-The sidebar is the current branch as a timeline, newest at the top: uncommitted work, the commits that aren't pushed, then the pushed ones. A HEAD marker sits where committed work starts and an origin marker where pushed work starts. The line is dashed along uncommitted work and fades out below the oldest commit.
+The Changes panel is the current branch as a timeline, newest at the top: uncommitted work, the commits that aren't pushed, then the pushed ones. A HEAD marker sits where committed work starts and an origin marker where pushed work starts. The line is dashed along uncommitted work and fades out below the oldest commit.
 
-Git actions live in the sidebar, next to the changes they act on. Fetch, pull and push sit in its header. Pull and push show an arrow and a count, and hide at zero. The commit box is pinned to the bottom, so it is always on screen. The Commit button is outlined rather than filled, so it doesn't outshine the code, and its Ctrl Enter hint sits inside it.
+Git actions live in the panel, next to the changes they act on. Fetch, pull and push sit in its header. Pull and push show an arrow and a count, and hide at zero. The commit box is pinned to the bottom, so it is always on screen. The Commit button is outlined rather than filled, so it doesn't outshine the code, and its Ctrl Enter hint sits inside it.
 
 The Uncommitted node stages or unstages everything, and fills like a file's ring: empty, half or full. An arrow beside it folds the file list.
 
-A commit title fades out at the sidebar's edge instead of ending in an ellipsis. A small chip after it marks a commit with a description. Opening a commit shows its description, then its files. Its node gets a ring, so the selected background only ever marks the file shown in the main view.
+A commit title fades out at the panel's edge instead of ending in an ellipsis. A small chip after it marks a commit with a description. Opening a commit shows its description, then its files. Its node gets a ring, so the selected background only ever marks the file shown in the main view.
 
 ## Changed files
 
@@ -106,13 +108,31 @@ Every file row shows its added and removed line counts. The folder isn't on the 
 
 The tree draws a guide under each folder's chevron and folds a chain of single-child folders into one row. By symbol, each file lists the functions, types and headings its hunks touch, each with an icon and its own line counts.
 
+## Files
+
+The Files panel shows the project's tree. A child starts where its parent's name starts, folder or file, so every level steps by the same amount: one arrow and its gap, which follows the density. The panel's title, its filter's icon and the top-level arrows share one column.
+
+The header holds new file, select the open file, and collapse all. Names take their Git status color, and a folder with changes inside gets a dot. Ignored files are dimmed. A chain of single-child folders folds into one row, as in the changes tree. Ctrl P filters the tree, opening every folder above a match.
+
+Settings: Git status, ignored files, dotfiles, folding, sort, indent guides, following the open file, and opening with one click or two.
+
 ## Notices
 
 A notice about a control shows in a tooltip on that control. One with no control behind it, such as a failed read or a bad settings file, shows as a toast at the top right, under the title bar.
 
 Only errors and the successes of long work toast. Warnings never do, so a noisy source can't take over the screen. A success fades on its own. An error folds into the badge once its time runs out, three seconds by default and a setting. A line along its bottom drains until then, and hovering it holds it open.
 
-The badge sits beside the settings gear: an icon and a count for the errors held and for the warnings, outlined in the worse of the two. It's gone while nothing is held. Clicking it opens the list, errors first and newest first within each. A repeat counts on its row as ×3 instead of adding one. Each row dismisses on its own, and Clear all empties the list.
+The badge sits left of the Run button: an icon and a count for the errors held and for the warnings, outlined in the worse of the two. It's gone while nothing is held. Clicking it opens the list, errors first and newest first within each. A repeat counts on its row as ×3 instead of adding one. Each row dismisses on its own, and Clear all empties the list.
+
+## Run
+
+The Run button runs a configuration saved in the repo's `.pensive/project.toml`. It's a split button. The left half runs the current configuration, and the chevron picks another. While it runs, play becomes stop and the chevron becomes restart, with the elapsed time beside the name. In the picker, a long command fades out at the menu's edge.
+
+When a run fails, the button's outline tints red and a log segment appears beside the name until the next run.
+
+## Background work
+
+Work Pensive runs on its own, such as indexing or a fetch, shows as a short bar and one icon left of the badge. The bar fills when the work knows its size and sweeps when it doesn't. With several tasks, it follows the one that will finish last. Clicking it opens the list of tasks. Hovering changes nothing, and nothing shows while idle.
 
 ## Command palette
 
@@ -132,7 +152,7 @@ Settings: whether the tabs show, which tab Ctrl K opens on, how far back Active 
 
 The gear, the palette's Settings command or Ctrl , opens Settings in place of the project, in the same window. Ctrl-click on the gear opens it in a new window, the way Ctrl Enter opens a project in one from the palette. Esc or the project crumb goes back.
 
-A rail of category icons runs down the left edge. The current category is filled and marked by a white bar, and hovering an icon names it. Beside the rail, the list shows the current category's pages on a guide line. Together they're as wide as the project's sidebar, so opening Settings reads as a change of view rather than a new place.
+In Settings, the rail shows the categories in place of the project's panels, and the gear stays at its foot, filled. The current category is filled and marked by a white bar, and hovering an icon names it. Beside the rail, the list shows the current category's pages on a guide line. The list is as wide as a project panel, so opening Settings reads as a change of view rather than a new place.
 
 The page shows one category: its heading, then its pages, each a card of rows. The wheel scrolls through them and stops at the category's end. A page becomes current once its heading passes a line near the top, and the list's highlight slides to it. The heading counts as part of the first page. Clicking the list scrolls smoothly and puts that page at the top, and the page leaves room under its last page so every page can get there. Clicking the rail fades the page over to that category, which rises slightly as it comes in. Once the category's last setting is on screen with room under it, a card leading to the next category docks at the bottom, a gutter below that setting. Every category has a description, which its heading and that card show.
 
@@ -141,6 +161,16 @@ Rows stop at a reading width, so a control stays near its name in a wide window.
 Search matches names, pages and descriptions. Matches in the category being read come first, then every other category's together. The rail dims categories with no match, and clicking a result shows it on its category's page.
 
 A setting with a preview will get an eye button that opens a drawer under its row, one at a time, drawn with the real components.
+
+## Controls
+
+Settings controls are a row tall, so they follow the density.
+
+- A dropdown has a minimum width, so the dropdowns in a card line up on their right edge. Its menu has a check on the current value.
+- A segmented control gives every segment the widest label's width. The selection stretches to its new segment: the leading edge leaves first, then the trailing edge follows. Hovering another segment fills it lightly, and hovering the selection brightens it one step. Icon switchers in headers and the palette's tabs are a compact version of the same control.
+- A stepper holds a number between minus and plus, and dims the end it can't go past.
+- A switch keeps one outline on and off. Only the knob changes, from gray to white.
+- Resting on a control with ordered values hands it the mouse wheel after a moment. A line fills under it while it waits, so scrolling past a card never changes a value. Down moves to the next value, and the ends don't wrap.
 
 ## Project icons
 

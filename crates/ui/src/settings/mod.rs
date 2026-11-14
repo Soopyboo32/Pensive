@@ -25,7 +25,8 @@ use settings::Settings;
 use theme::{ActiveTheme, Density, Dp, dp};
 
 use crate::{
-    clear_after, key_binding,
+    NOTICE_FOR, PANEL, clear_after, key_binding,
+    rail_gear::GearClicked,
     smooth_scroll::SmoothScroll,
     text_input::{Changed, TextInput},
     view_callback,
@@ -34,8 +35,6 @@ use crate::{
 actions!(settings_view, [Dismiss, FocusSearch]);
 
 const CONTEXT: &str = "SettingsView";
-/// The rail and the list together, the same width as the project's sidebar.
-const SIDEBAR: Dp = dp(280.);
 /// A page becomes current once its heading crosses this far below the top of the page.
 const TRACKING_LINE: Dp = dp(60.);
 /// Rows stop here, so a control stays near its name on a wide window. PEN-40 revisits it.
@@ -53,9 +52,6 @@ const CATEGORY_IN: Duration = Duration::from_millis(150);
 const RISE: Dp = dp(16.);
 /// How long the next card takes to dock under the last page, or to leave.
 const DOCK: Duration = Duration::from_millis(150);
-/// How long a tool's notice stays on it.
-const NOTICE_FOR: Duration = Duration::from_secs(3);
-
 pub(crate) fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         key_binding("escape", Dismiss, Some(CONTEXT), cx),
@@ -147,11 +143,13 @@ pub(crate) struct SettingsView {
     search_from: Option<(usize, Point<Pixels>)>,
     hovered: Option<usize>,
     hovered_tool: Option<Tool>,
+    gear_hovered: bool,
     notice: Option<(Tool, Notice, Task<()>)>,
     _subscriptions: [Subscription; 2],
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
+impl EventEmitter<GearClicked> for SettingsView {}
 
 impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -196,6 +194,7 @@ impl SettingsView {
             search_from: None,
             hovered: None,
             hovered_tool: None,
+            gear_hovered: false,
             notice: None,
             _subscriptions: [typed, changed],
         }
@@ -640,7 +639,6 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_none()
-                    .w(SIDEBAR)
                     .h_full()
                     .bg(colors.surface_panel)
                     .border_r_1()
@@ -650,8 +648,7 @@ impl Render for SettingsView {
                         div()
                             .flex()
                             .flex_col()
-                            .flex_1()
-                            .min_w_0()
+                            .w(PANEL)
                             .pt_2p5()
                             .child(search_field)
                             .child(

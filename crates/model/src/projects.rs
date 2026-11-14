@@ -11,8 +11,9 @@ use anyhow::Result;
 use gpui::{AppContext as _, Context, Entity, SharedString, Subscription, Task};
 
 use crate::{
-    Backend, Changes, Document, DocumentEvent, FileKey, FileVersions, GitBackend, Origin,
-    Repository, Source, clock, document::Contents, queue::Queue,
+    Backend, Changes, Document, DocumentEvent, FileKey, FileVersions, GitBackend, Notice, Notices,
+    Origin, PROJECT_FILE, Repository, RunConfig, Source, Version, WorktreeFiles, clock,
+    document::Contents, queue::Queue, run_configs,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -95,6 +96,10 @@ pub struct Projects {
     staging: Queue,
     /// How many reads of each worktree's changes have started.
     reads: HashMap<PathBuf, u64>,
+    /// Each worktree's files, by its path, once read.
+    files: HashMap<PathBuf, WorktreeFiles>,
+    /// Each project's run configurations, once read.
+    run_configs: HashMap<ProjectId, Vec<RunConfig>>,
     _saves: Vec<Subscription>,
 }
 
@@ -111,6 +116,8 @@ impl Projects {
             git: Backend::new(git, Origin::Git),
             staging: Queue::default(),
             reads: HashMap::new(),
+            files: HashMap::new(),
+            run_configs: HashMap::new(),
             _saves: Vec::new(),
         }
     }
@@ -161,6 +168,70 @@ impl Projects {
             repository,
         });
         id
+    }
+
+    /// The files in the worktree at `worktree`, once read.
+    pub fn files(&self, worktree: &Path) -> Option<&WorktreeFiles> {
+        self.files.get(worktree)
+    }
+
+    /// Lists the files in the worktree at `worktree` off the UI thread, replacing what's cached.
+    pub fn read_files(&mut self, worktree: PathBuf, cx: &mut Context<Self>) -> Task<Result<()>> {
+        let path = worktree.clone();
+        let read = self
+            .git
+            .call("Couldn't list files", move |git| git.files(&path), cx);
+        cx.spawn(async move |this, cx| {
+            let files = read.await?;
+            this.update(cx, |this, cx| {
+                this.insert_files(worktree, files);
+                cx.notify();
+            })
+        })
+    }
+
+    pub(crate) fn insert_files(&mut self, worktree: PathBuf, files: WorktreeFiles) {
+        self.files.insert(worktree, files);
+    }
+
+    /// The run configurations `project` saves, once read. None until then.
+    pub fn run_configs(&self, project: ProjectId) -> &[RunConfig] {
+        self.run_configs.get(&project).map_or(&[], Vec::as_slice)
+    }
+
+    /// Reads the run configurations in the project's `.pensive/project.toml` off the UI thread.
+    /// A project without the file has none, and a file that doesn't parse posts a notice.
+    pub fn read_run_configs(
+        &mut self,
+        project: ProjectId,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<()>> {
+        let Some(root) = self.project(project).map(|it| it.repository.root.clone()) else {
+            return Task::ready(Ok(()));
+        };
+        let title = format!("Couldn't read {PROJECT_FILE}");
+        let read = self.git.call(
+            title.clone(),
+            move |git| git.read_file(&root, Path::new(PROJECT_FILE)),
+            cx,
+        );
+        cx.spawn(async move |this, cx| {
+            let configs = match read.await? {
+                Version::Text(text) => run_configs(&text).inspect_err(|error| {
+                    let notice = Notice::failed(title, Origin::Config, error);
+                    cx.update(|cx| Notices::post(notice, cx));
+                })?,
+                Version::Missing | Version::Binary => Vec::new(),
+            };
+            this.update(cx, |this, cx| {
+                this.insert_run_configs(project, configs);
+                cx.notify();
+            })
+        })
+    }
+
+    pub(crate) fn insert_run_configs(&mut self, project: ProjectId, configs: Vec<RunConfig>) {
+        self.run_configs.insert(project, configs);
     }
 
     /// The changes in the worktree at `worktree`, once read.

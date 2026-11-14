@@ -1,5 +1,6 @@
 //! Stateless building blocks that render from props and the theme.
 
+mod activity;
 mod breadcrumb;
 mod button;
 mod card;
@@ -7,16 +8,20 @@ mod command_palette;
 mod diff;
 mod diff_stat;
 mod fade_text;
+mod file_tree_row;
 #[cfg(feature = "mocks")]
 mod gallery;
 mod icon;
 mod icon_button;
 mod kbd;
 mod list_row;
+mod menu;
 mod nav_list;
 mod next_card;
 mod notice_list;
 mod rail;
+mod run_button;
+mod scroll_to_change;
 mod segmented_control;
 mod select;
 mod setting_row;
@@ -33,11 +38,13 @@ mod toast;
 mod toggle;
 mod tone;
 mod tooltip;
+mod transition;
 
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
-use gpui::{App, StatefulInteractiveElement, Window};
+use gpui::{App, ElementId, SharedString, StatefulInteractiveElement, Window};
 
+pub use activity::Activity;
 pub use breadcrumb::Breadcrumb;
 pub use button::{Button, ButtonStyle};
 pub use card::Card;
@@ -47,6 +54,7 @@ pub use command_palette::{
 pub use diff::{DiffRow, LineKind};
 pub use diff_stat::DiffStat;
 pub use fade_text::FadeText;
+pub use file_tree_row::{FileTreeRow, TreeStatus};
 #[cfg(feature = "mocks")]
 pub use gallery::Gallery;
 pub use icon::{Icon, IconName};
@@ -57,6 +65,8 @@ pub use nav_list::{NavItem, NavList};
 pub use next_card::NextCard;
 pub use notice_list::{NoticeList, NoticeRow};
 pub use rail::{Rail, RailButton, RailItem};
+pub use run_button::{RunAction, RunButton, RunChoice, RunState};
+pub use scroll_to_change::ScrollToChange;
 pub use segmented_control::SegmentedControl;
 pub use select::Select;
 pub use setting_row::SettingRow;
@@ -79,6 +89,11 @@ pub type Callback<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
 /// A [`Callback`] for an event that carries no value, such as a click.
 pub fn callback(handler: impl Fn(&mut Window, &mut App) + 'static) -> Callback<()> {
     Rc::new(move |(), window, cx| handler(window, cx))
+}
+
+/// An id for a part of the element with `id`, such as its kept state or one of its animations.
+pub(crate) fn child_id(id: &ElementId, part: impl Into<SharedString>) -> ElementId {
+    ElementId::NamedChild(Arc::new(id.clone()), part.into())
 }
 
 /// Clicks on a component that takes an `on_click` callback.
@@ -113,6 +128,9 @@ pub fn mocks() -> Vec<mock::Mock> {
         select::mocks(),
         segmented_control::mocks(),
         stepper::mocks(),
+        activity::mocks(),
+        run_button::mocks(),
+        scroll_to_change::mocks(),
         tab_strip::mocks(),
         button::mocks(),
         icon_button::mocks(),
@@ -120,6 +138,7 @@ pub fn mocks() -> Vec<mock::Mock> {
         status_ring::mocks(),
         diff_stat::mocks(),
         list_row::mocks(),
+        file_tree_row::mocks(),
         tooltip::mocks(),
         timeline_row::mocks(),
         title_bar::mocks(),
@@ -200,9 +219,10 @@ mod tests {
                     .on_click(count(clicks))
                     .into_any_element()
             }),
-            ("Select", |clicks| {
-                Select::new("control", "7 days")
-                    .on_click(count(clicks))
+            ("Stepper", |clicks| {
+                let count = count(clicks);
+                Stepper::new("control", "7 days")
+                    .on_step(move |_, window, cx| count(window, cx))
                     .into_any_element()
             }),
             ("ListRow", |clicks| {

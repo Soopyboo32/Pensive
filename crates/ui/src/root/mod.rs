@@ -5,24 +5,25 @@
 #[cfg(feature = "mocks")]
 mod mocks;
 
-use components::{TitleBar, TitleBarProject};
+use components::{RunAction, RunButton, RunChoice, TitleBar, TitleBarProject};
 use gpui::{
     App, Bounds, Context, DisplayId, Entity, FocusHandle, Focusable, MouseButton, Pixels, Size,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
-    div, prelude::*, px, size, svg,
+    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions,
+    actions, div, prelude::*, px, size, svg,
 };
 #[cfg(feature = "mocks")]
 pub(crate) use mocks::mocks;
-use model::{ProjectId, Projects};
+use model::{Notice, ProjectId, Projects};
 use theme::{ActiveTheme, Typeset, dp};
 
 #[cfg(feature = "mocks")]
 use crate::mock_browser::{MockBrowser, MockBrowserEvent, MockMode, ViewMocks};
 use crate::{
-    key_binding,
-    notices::NoticeOverlay,
+    NOTICE_FOR, clear_after, key_binding,
+    notices::{self, NoticeOverlay},
     palette::{Keyword, OPEN_ON, PaletteEvent, PaletteView, Tab, scrim},
     project::ProjectView,
+    rail_gear::GearClicked,
     settings::{SettingsEvent, SettingsView},
     view_callback, view_callback_with,
     window_frame::{draws_window_controls, window_frame},
@@ -61,11 +62,17 @@ pub struct Pensive {
     projects: Entity<Projects>,
     /// The project shown, with its view.
     project: Option<(ProjectId, Entity<ProjectView>)>,
+    /// Hears the project view's gear.
+    project_gear: Option<Subscription>,
     palette: Entity<PaletteView>,
     palette_open: bool,
     /// Shown in place of the project or the landing screen while open.
-    settings: Option<(Entity<SettingsView>, Subscription)>,
+    settings: Option<(Entity<SettingsView>, [Subscription; 2])>,
     notices: Entity<NoticeOverlay>,
+    /// The run configuration the Run button starts, by its place in the project's list.
+    run_choice: usize,
+    /// What the Run button had to say when last clicked, until the task clears it.
+    run_notice: Option<(Notice, Task<()>)>,
     /// Set while the window shows the mock browser, or a mock opened from it.
     #[cfg(feature = "mocks")]
     mocks: Option<MockMode>,
@@ -88,10 +95,13 @@ impl Pensive {
         let mut pensive = Self {
             projects,
             project: None,
+            project_gear: None,
             palette,
             palette_open: false,
             settings: None,
             notices,
+            run_choice: 0,
+            run_notice: None,
             #[cfg(feature = "mocks")]
             mocks: None,
             focus_handle: cx.focus_handle(),
@@ -112,17 +122,35 @@ impl Pensive {
             Some((view, _)) => view.clone(),
             None => {
                 let view = cx.new(SettingsView::new);
-                let subscription =
+                let closed =
                     cx.subscribe_in(&view, window, |pensive, _, event, window, cx| match event {
                         SettingsEvent::Close => pensive.close_settings(window, cx),
                     });
-                self.settings = Some((view.clone(), subscription));
+                let gear = cx.subscribe_in(&view, window, Self::use_gear);
+                self.settings = Some((view.clone(), [closed, gear]));
                 view
             }
         };
         self.palette_open = false;
         window.focus(&view.focus_handle(cx), cx);
         cx.notify();
+    }
+
+    /// Opens Settings, or closes it when it's open. `new_window` opens it in a window of its own.
+    fn use_gear<V>(
+        &mut self,
+        _: &Entity<V>,
+        gear: &GearClicked,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if gear.new_window {
+            open_beside(window, self.projects.clone(), self.project_id(), true, cx);
+        } else if self.settings.is_some() {
+            self.close_settings(window, cx);
+        } else {
+            self.open_settings(window, cx);
+        }
     }
 
     /// Back to the project, or to the landing screen and its palette.
@@ -181,7 +209,12 @@ impl Pensive {
         if self.project_id() != Some(project) {
             let projects = self.projects.clone();
             let view = cx.new(|cx| ProjectView::new(projects, project, window, cx));
+            self.project_gear = Some(cx.subscribe_in(&view, window, Self::use_gear));
             self.project = Some((project, view));
+            self.run_choice = 0;
+            self.projects
+                .update(cx, |projects, cx| projects.read_run_configs(project, cx))
+                .detach();
         }
         if let Some((_, view)) = &self.project {
             window.focus(&view.focus_handle(cx), cx);
@@ -337,37 +370,63 @@ impl Pensive {
             .on_notices(view_callback(cx, |this: &mut Self, _, cx| {
                 this.notices.update(cx, NoticeOverlay::toggle_list)
             }))
-            .settings_open(settings_open)
-            .on_settings(view_callback_with(
-                cx,
-                |this: &mut Self, new_window: bool, window, cx| {
-                    if new_window {
-                        open_beside(window, this.projects.clone(), this.project_id(), true, cx);
-                    } else if this.settings.is_some() {
-                        this.close_settings(window, cx);
-                    } else {
-                        this.open_settings(window, cx);
-                    }
-                },
-            ));
+            .settings_open(settings_open);
+        let Some(project) = self.project_id().filter(|_| has_project) else {
+            return title_bar;
+        };
+        let title_bar = title_bar.run(self.run_button(project, cx));
         if settings_open {
             let back = view_callback(cx, |this: &mut Self, window, cx| {
                 this.close_settings(window, cx)
             });
-            return if has_project {
-                title_bar.on_project(back).on_palette(open(None))
-            } else {
-                title_bar
-            };
+            return title_bar.on_project(back);
         }
-        if has_project {
-            title_bar
-                .on_project(open(Some(Keyword::Project(None))))
-                .on_branch(open(Some(Keyword::Branch)))
-                .on_palette(open(None))
-        } else {
-            title_bar
-        }
+        title_bar
+            .on_project(open(Some(Keyword::Project(None))))
+            .on_branch(open(Some(Keyword::Branch)))
+    }
+
+    /// The Run button for `project`'s saved configurations. Nothing runs them yet, so running
+    /// answers with a notice.
+    fn run_button(&self, project: ProjectId, cx: &Context<Self>) -> RunButton {
+        let choices: Vec<RunChoice> = self
+            .projects
+            .read(cx)
+            .run_configs(project)
+            .iter()
+            .map(|config| RunChoice {
+                name: config.name.clone().into(),
+                command: config.command.clone().into(),
+            })
+            .collect();
+        let selected = (self.run_choice < choices.len()).then_some(self.run_choice);
+        RunButton::new(choices, selected)
+            .notice(
+                self.run_notice
+                    .as_ref()
+                    .map(|(notice, _)| notices::tooltip(notice).into_any_element()),
+            )
+            .on_action(view_callback_with(
+                cx,
+                |this: &mut Self, action: RunAction, _, cx| {
+                    let notice = match action {
+                        RunAction::Choose(index) => {
+                            this.run_choice = index;
+                            cx.notify();
+                            return;
+                        }
+                        RunAction::EditConfigs => Notice::not_wired("Editing run configurations"),
+                        RunAction::OpenLog => Notice::not_wired("The run log"),
+                        RunAction::Run | RunAction::Stop | RunAction::Restart => {
+                            Notice::not_wired("Run")
+                        }
+                    };
+                    let clear =
+                        clear_after(NOTICE_FOR, |this: &mut Self| this.run_notice = None, cx);
+                    this.run_notice = Some((notice, clear));
+                    cx.notify();
+                },
+            ))
     }
 
     fn landing(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -710,6 +769,29 @@ mod tests {
         assert!(settings_focused);
     }
 
+    #[gpui::test]
+    fn run_answers_with_a_notice_until_something_runs_it(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        let run = cx.debug_bounds("run").unwrap();
+        click(cx, run.center());
+        let notice = view.read_with(cx, |pensive, _| {
+            pensive
+                .run_notice
+                .as_ref()
+                .map(|(notice, _)| notice.title.clone())
+        });
+        assert_eq!(notice.as_deref(), Some("Run isn't wired up yet"));
+    }
+
+    #[gpui::test]
+    fn the_gear_in_settings_goes_back_to_the_project(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        cx.dispatch_action(OpenSettings);
+        let gear = cx.debug_bounds("settings").unwrap();
+        click(cx, gear.center());
+        view.read_with(cx, |pensive, _| assert!(pensive.settings.is_none()));
+    }
+
     #[cfg(feature = "mocks")]
     #[gpui::test]
     fn leaving_a_mock_puts_back_the_settings_it_changed(cx: &mut TestAppContext) {
@@ -735,7 +817,7 @@ mod tests {
 
     #[cfg(feature = "mocks")]
     #[gpui::test]
-    fn the_gear_over_a_component_mock_leaves_the_mocks_for_settings(cx: &mut TestAppContext) {
+    fn opening_settings_over_a_component_mock_leaves_the_mocks(cx: &mut TestAppContext) {
         use crate::mock_browser::ViewMocks;
 
         let (view, cx) = pensive_window(cx);
@@ -749,8 +831,7 @@ mod tests {
         });
         cx.run_until_parked();
 
-        let gear = cx.debug_bounds("settings").unwrap();
-        click(cx, gear.center());
+        cx.dispatch_action(OpenSettings);
         view.read_with(cx, |pensive, _| {
             assert!(pensive.mocks.is_none());
             assert!(pensive.settings.is_some());
