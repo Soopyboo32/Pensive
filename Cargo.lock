@@ -247,7 +247,6 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "image",
- "resvg",
 ]
 
 [[package]]
@@ -3764,7 +3763,6 @@ dependencies = [
  "log",
  "mock",
  "model",
- "resvg",
  "settings",
  "theme",
  "ui",
