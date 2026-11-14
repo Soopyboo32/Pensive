@@ -528,6 +528,7 @@ pub(crate) fn window_options(bounds: WindowBounds) -> WindowOptions {
         }),
         window_decorations: Some(WindowDecorations::Client),
         app_id: Some("pensive".into()),
+        icon: Some(assets::app_icon()),
         ..Default::default()
     }
 }
