@@ -43,7 +43,8 @@ const READING_WIDTH: Dp = dp(680.);
 const CLICK_GLIDE: Duration = Duration::from_millis(200);
 /// How long a wheel notch takes to glide. A trackpad moves the page as it reports.
 const WHEEL_GLIDE: Duration = Duration::from_millis(150);
-/// How long the list's highlight and the rail's fill take to slide, with a frame to spare.
+/// How long the list's highlight, the rail's fill and the rail's width take to slide, with a
+/// frame to spare.
 const SLIDE: Duration = Duration::from_millis(170);
 /// When the category changes, its old list and page fade out, then the new ones fade in.
 const CATEGORY_OUT: Duration = Duration::from_millis(100);
@@ -94,20 +95,12 @@ enum Pending {
     Offset(Pixels),
 }
 
-/// The buttons at the rail's foot, which have nothing behind them yet.
+/// The buttons at the rail's foot, other than the gear.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tool {
+    /// Has nothing behind it yet, so it answers with a notice.
     OpenFile,
     ShowNames,
-}
-
-impl Tool {
-    fn notice(self) -> Notice {
-        Notice::not_wired(match self {
-            Tool::OpenFile => "Opening settings.toml",
-            Tool::ShowNames => "Showing names on the rail",
-        })
-    }
 }
 
 pub(crate) struct SettingsView {
@@ -145,6 +138,12 @@ pub(crate) struct SettingsView {
     hovered_tool: Option<Tool>,
     gear_hovered: bool,
     notice: Option<(Tool, Notice, Task<()>)>,
+    /// Whether the rail names its buttons, which fills the room beside a short list of pages.
+    names: bool,
+    /// Counts the names' toggles, so each one's slide starts over.
+    names_toggles: usize,
+    /// The rail sliding to its new width, until it's done.
+    names_sliding: Option<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
 
@@ -196,6 +195,9 @@ impl SettingsView {
             hovered_tool: None,
             gear_hovered: false,
             notice: None,
+            names: true,
+            names_toggles: 0,
+            names_sliding: None,
             _subscriptions: [typed, changed],
         }
     }
@@ -390,9 +392,25 @@ impl SettingsView {
     }
 
     fn use_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
-        let clear = clear_after(NOTICE_FOR, |view: &mut Self| view.notice = None, cx);
-        self.notice = Some((tool, tool.notice(), clear));
+        match tool {
+            Tool::OpenFile => {
+                let clear = clear_after(NOTICE_FOR, |view: &mut Self| view.notice = None, cx);
+                let notice = Notice::not_wired("Opening settings.toml");
+                self.notice = Some((tool, notice, clear));
+            }
+            Tool::ShowNames => {
+                self.names = !self.names;
+                self.names_toggles += 1;
+                let done = clear_after(SLIDE, |view: &mut Self| view.names_sliding = None, cx);
+                self.names_sliding = Some(done);
+            }
+        }
         cx.notify();
+    }
+
+    /// Whether the rail's buttons show their names, which they keep while the rail narrows.
+    fn names_shown(&self) -> bool {
+        self.names || self.names_sliding.is_some()
     }
 
     fn dismiss(&mut self, _: &Dismiss, _: &mut Window, cx: &mut Context<Self>) {

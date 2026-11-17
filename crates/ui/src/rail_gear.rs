@@ -13,9 +13,11 @@ pub(crate) struct GearClicked {
 }
 
 /// The gear for the rail of the view behind `cx`. `open` fills it, as Settings does to show
-/// where you are. The view keeps whether it's hovered, and `set_hovered` stores it.
+/// where you are, and `named` puts its name beside it. The view keeps whether it's hovered, and
+/// `set_hovered` stores it.
 pub(crate) fn rail_gear<V: EventEmitter<GearClicked>>(
     open: bool,
+    named: bool,
     hovered: bool,
     set_hovered: fn(&mut V, bool),
     cx: &mut Context<V>,
@@ -27,6 +29,7 @@ pub(crate) fn rail_gear<V: EventEmitter<GearClicked>>(
         .child(
             RailButton::new("gear-button", IconName::Settings, "Settings")
                 .filled(open)
+                .named(named)
                 .hovered(hovered)
                 .on_hover(view_callback_with(cx, move |view: &mut V, on, _, cx| {
                     set_hovered(view, on);

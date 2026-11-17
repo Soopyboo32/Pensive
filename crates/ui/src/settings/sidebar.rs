@@ -32,6 +32,11 @@ impl SettingsView {
         } else {
             self.current.category
         };
+        let named = self.names_shown();
+        let toggle_names = match self.names {
+            true => "Hide names",
+            false => "Show names",
+        };
         let tool = |tool: Tool, icon: IconName, name: &'static str| {
             let notice = self
                 .notice
@@ -41,7 +46,8 @@ impl SettingsView {
             div()
                 .relative()
                 .child(
-                    RailButton::new(name, icon, name)
+                    RailButton::new(("tool", tool as usize), icon, name)
+                        .named(named)
                         .hovered(self.hovered_tool == Some(tool) && notice.is_none())
                         .on_hover(view_callback_with(
                             cx,
@@ -72,11 +78,14 @@ impl SettingsView {
                     .map(|(spot, _)| spot.category),
             )
             .hovered(self.hovered)
+            .named(self.names)
+            .names_toggled(self.names_sliding.is_some().then_some(self.names_toggles))
             .tools([
                 tool(Tool::OpenFile, IconName::FileCog, "Open settings.toml"),
-                tool(Tool::ShowNames, IconName::PanelLeft, "Show names"),
+                tool(Tool::ShowNames, IconName::PanelLeft, toggle_names),
                 rail_gear(
                     true,
+                    named,
                     self.gear_hovered,
                     |view: &mut Self, hovered| view.gear_hovered = hovered,
                     cx,

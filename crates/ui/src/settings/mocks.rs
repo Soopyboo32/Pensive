@@ -59,6 +59,16 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
+        Mock::new("settings", "names_hidden", |w, cx| {
+            window(
+                |view, cx| {
+                    view.names = false;
+                    cx.notify();
+                },
+                w,
+                cx,
+            )
+        }),
         Mock::new("settings", "command_palette", |w, cx| {
             window(
                 |view, cx| {

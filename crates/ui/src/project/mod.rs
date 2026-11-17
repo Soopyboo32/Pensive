@@ -87,8 +87,7 @@ impl FileLayout {
 pub enum Panel {
     Changes,
     Files,
-    Search,
-    History,
+    PullRequests,
 }
 
 impl Panel {
@@ -96,8 +95,7 @@ impl Panel {
         match self {
             Panel::Changes => IconName::FolderGit2,
             Panel::Files => IconName::Files,
-            Panel::Search => IconName::Search,
-            Panel::History => IconName::GitGraph,
+            Panel::PullRequests => IconName::GitPullRequest,
         }
     }
 
@@ -105,8 +103,7 @@ impl Panel {
         match self {
             Panel::Changes => "Changes",
             Panel::Files => "Files",
-            Panel::Search => "Search",
-            Panel::History => "History",
+            Panel::PullRequests => "Pull requests",
         }
     }
 
@@ -139,7 +136,7 @@ impl Control {
             Control::Push => "Push",
             Control::Commit => "Commit",
             Control::NewFile => "New file",
-            Control::Panel(panel) => panel.name(),
+            Control::Panel(_) => "This panel",
         })
     }
 }
@@ -547,7 +544,7 @@ impl ProjectView {
                 self.panel = panel;
                 cx.notify();
             }
-            Panel::Search | Panel::History => self.use_control(Control::Panel(panel), cx),
+            Panel::PullRequests => self.use_control(Control::Panel(panel), cx),
         }
     }
 
@@ -580,6 +577,7 @@ impl ProjectView {
             .hovered(self.rail_hovered)
             .notice(notice)
             .tools([rail_gear(
+                false,
                 false,
                 self.gear_hovered,
                 |view: &mut Self, hovered| view.gear_hovered = hovered,

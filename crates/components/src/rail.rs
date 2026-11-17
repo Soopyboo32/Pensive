@@ -1,5 +1,5 @@
-//! The settings rail: a button per category down the left edge, with the current one filled and
-//! marked by a bar that slides when it changes, and tools at its foot.
+//! The rail down a view's left edge: a button per item, with the current one filled and marked by
+//! a bar that slides when it changes, and tools at its foot. It can widen to name every button.
 
 use std::time::Duration;
 
@@ -7,22 +7,31 @@ use gpui::{
     Animation, AnimationExt, AnyElement, App, ElementId, SharedString, Window, deferred, div,
     ease_out_quint, prelude::*,
 };
-use theme::{ActiveTheme, Dp, dp};
+use theme::{ActiveTheme, Dp, HAIRLINE, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, Tooltip, callback};
 
-/// How long the fill and the bar take to reach a new category.
+/// How long the fill and the bar take to reach a new item, and the rail to widen or narrow.
 const SLIDE: Duration = Duration::from_millis(150);
 const ICON: Dp = dp(18.);
-/// Between buttons, and between the bar and the button it marks.
+/// Between buttons.
 const GAP: Dp = dp(4.);
+/// Around the buttons, on every side.
+const INSET: Dp = dp(8.);
+/// The rail's width while it names its buttons.
+const NAMED_WIDTH: Dp = dp(184.);
 
 /// A button is a row and 8 px tall, so it grows and shrinks with the density.
 fn button_size(cx: &App) -> Dp {
     cx.density().row_height + dp(8.)
 }
 
-/// One button on the rail, with its name in a tooltip while hovered.
+/// How far from the rail's left edge its icons are centered, for lining things up with them.
+pub(crate) fn icon_center(cx: &App) -> Dp {
+    INSET + button_size(cx) / 2.
+}
+
+/// One button on the rail, with its name beside it or in a tooltip while hovered.
 #[derive(IntoElement)]
 pub struct RailButton {
     id: ElementId,
@@ -32,6 +41,7 @@ pub struct RailButton {
     filled: bool,
     dimmed: bool,
     hovered: bool,
+    named: bool,
     notice: Option<AnyElement>,
     on_click: Option<Callback<()>>,
     on_hover: Option<Callback<bool>>,
@@ -47,6 +57,7 @@ impl RailButton {
             filled: false,
             dimmed: false,
             hovered: false,
+            named: false,
             notice: None,
             on_click: None,
             on_hover: None,
@@ -85,6 +96,12 @@ impl RailButton {
         self
     }
 
+    /// The name beside the icon rather than in a tooltip, with the button as wide as the rail.
+    pub fn named(mut self, named: bool) -> Self {
+        self.named = named;
+        self
+    }
+
     pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(callback(handler));
         self
@@ -99,6 +116,8 @@ impl RailButton {
 impl RenderOnce for RailButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = &cx.theme().colors;
+        let density = cx.density();
+        let size = button_size(cx);
         let color = if self.selected || self.filled {
             colors.text_strong
         } else if self.dimmed {
@@ -108,26 +127,44 @@ impl RenderOnce for RailButton {
         } else {
             colors.text_faint
         };
+        let tooltip = (self.hovered && !self.named).then(|| Tooltip::new(self.name.clone()));
         div()
             .id(self.id)
             .relative()
             .flex()
             .flex_none()
             .items_center()
-            .justify_center()
-            .size(button_size(cx))
-            .rounded(cx.density().radius_md)
+            .h(size)
+            .map(|button| match self.named {
+                true => button.w_full().overflow_hidden(),
+                false => button.w(size),
+            })
+            .rounded(density.radius_md)
             .when(self.filled, |button| button.bg(colors.surface_selected))
             .when(self.hovered && !self.selected && !self.filled, |button| {
                 button.bg(colors.surface_raised)
             })
-            .child(Icon::new(self.icon).size(ICON).color(color))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .size(size)
+                    .child(Icon::new(self.icon).size(ICON).color(color)),
+            )
+            .when(self.named, |button| {
+                button.child(
+                    div()
+                        .whitespace_nowrap()
+                        .typeset(density.body)
+                        .text_color(color)
+                        .child(self.name),
+                )
+            })
             .children(
                 self.notice
-                    .or_else(|| {
-                        self.hovered
-                            .then(|| Tooltip::new(self.name).into_any_element())
-                    })
+                    .or_else(|| tooltip.map(IntoElement::into_any_element))
                     .map(|tooltip| {
                         div()
                             .absolute()
@@ -163,6 +200,9 @@ pub struct Rail {
     previous: Option<usize>,
     hovered: Option<usize>,
     notice: Option<(usize, AnyElement)>,
+    named: bool,
+    /// Tells one toggle of the names from the next, while the rail slides to its new width.
+    names_toggled: Option<usize>,
     tools: Vec<AnyElement>,
     on_select: Option<Callback<usize>>,
     on_hover: Option<Callback<Option<usize>>>,
@@ -176,6 +216,8 @@ impl Rail {
             previous: None,
             hovered: None,
             notice: None,
+            named: false,
+            names_toggled: None,
             tools: Vec::new(),
             on_select: None,
             on_hover: None,
@@ -197,6 +239,20 @@ impl Rail {
     /// clicking it.
     pub fn notice(mut self, notice: Option<(usize, AnyElement)>) -> Self {
         self.notice = notice;
+        self
+    }
+
+    /// Widens the rail and names every item beside its icon. The tools name themselves, with
+    /// [`RailButton::named`].
+    pub fn named(mut self, named: bool) -> Self {
+        self.named = named;
+        self
+    }
+
+    /// Slides the width from the other state, as just after the names were toggled. Each toggle
+    /// passes a new number, so its slide starts over.
+    pub fn names_toggled(mut self, toggle: Option<usize>) -> Self {
+        self.names_toggled = toggle;
         self
     }
 
@@ -222,21 +278,21 @@ impl Rail {
 }
 
 impl RenderOnce for Rail {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = &cx.theme().colors;
         let density = cx.density();
         let size = button_size(cx);
-        let inset = dp(8.);
-        let top = move |index: usize| inset + (size + GAP) * index as f32;
+        let top = move |index: usize| INSET + (size + GAP) * index as f32;
         let fill = div()
             .absolute()
-            .left(inset)
-            .size(size)
+            .left(INSET)
+            .right(INSET)
+            .h(size)
             .rounded(density.radius_md)
             .bg(colors.surface_selected);
         let bar = div()
             .absolute()
-            .left_0()
+            .left(INSET)
             .w(dp(2.))
             .h(size - dp(16.))
             .rounded_r(dp(2.))
@@ -262,6 +318,8 @@ impl RenderOnce for Rail {
                 bar.top(top(to) + dp(8.)).into_any_element(),
             ],
         };
+        // Names stay while the rail narrows, so they slide out under its edge.
+        let named = self.named || self.names_toggled.is_some();
         let mut notice = self.notice;
         let buttons = self.items.into_iter().enumerate().map(|(index, item)| {
             let notice = notice
@@ -273,6 +331,7 @@ impl RenderOnce for Rail {
                 .selected(index == self.selected)
                 .dimmed(item.dimmed)
                 .hovered(self.hovered == Some(index) && notice.is_none())
+                .named(named)
                 .notice(notice)
                 .on_click(move |window, cx| {
                     if let Some(handler) = &on_select {
@@ -285,24 +344,39 @@ impl RenderOnce for Rail {
                     }
                 })
         });
-        div()
+        let rail = div()
             .relative()
             .flex()
             .flex_col()
             .flex_none()
-            // From the left, like the fill, so the border on the right doesn't shift the buttons.
-            .items_start()
             .gap(GAP)
-            .w(size + inset * 2.)
             .h_full()
-            .p(inset)
+            .p(INSET)
             .bg(colors.surface_app)
             .border_r_1()
             .border_color(colors.border_subtle)
             .children(marks)
             .children(buttons)
             .child(div().flex_1())
-            .children(self.tools)
+            .children(self.tools);
+        // The border is a hairline at any zoom, so the widths are in pixels.
+        let rem_size = window.rem_size();
+        let narrow = (size + INSET * 2.).to_pixels(rem_size) + HAIRLINE;
+        let wide = NAMED_WIDTH.to_pixels(rem_size);
+        let (from, to) = match self.named {
+            true => (narrow, wide),
+            false => (wide, narrow),
+        };
+        match self.names_toggled {
+            Some(toggle) => rail
+                .with_animation(
+                    ("rail-names", toggle),
+                    Animation::new(SLIDE).with_easing(ease_out_quint()),
+                    move |rail, delta| rail.w(from + (to - from) * delta),
+                )
+                .into_any_element(),
+            None => rail.w(to).into_any_element(),
+        }
     }
 }
 
@@ -323,12 +397,19 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
         })
         .collect()
     }
-    fn rail(selected: usize, hovered: Option<usize>, dimmed: &[usize]) -> AnyElement {
+    fn rail(selected: usize, hovered: Option<usize>, dimmed: &[usize], named: bool) -> AnyElement {
         div()
             .h(dp(240.))
-            .child(Rail::new(items(dimmed), selected).hovered(hovered).tools([
-                RailButton::new("file", IconName::FileCog, "Open settings.toml").into_any_element(),
-            ]))
+            .child(
+                Rail::new(items(dimmed), selected)
+                    .hovered(hovered)
+                    .named(named)
+                    .tools([
+                        RailButton::new("file", IconName::FileCog, "Open settings.toml")
+                            .named(named)
+                            .into_any_element(),
+                    ]),
+            )
             .into_any_element()
     }
 
@@ -338,13 +419,20 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                 .section(
                     "States",
                     [
-                        ("First selected", rail(0, None, &[])),
-                        ("Hovering Notices", rail(1, Some(2), &[])),
-                        ("Searching", rail(1, None, &[0, 2])),
+                        ("First selected", rail(0, None, &[], false)),
+                        ("Hovering Notices", rail(1, Some(2), &[], false)),
+                        ("Searching", rail(1, None, &[0, 2], false)),
+                    ],
+                )
+                .section(
+                    "Named",
+                    [
+                        ("First selected", rail(0, None, &[], true)),
+                        ("Hovering Notices", rail(1, Some(2), &[], true)),
                     ],
                 )
                 .into_any_element()
         })
-        .size(520., 360.),
+        .size(520., 680.),
     ]
 }
