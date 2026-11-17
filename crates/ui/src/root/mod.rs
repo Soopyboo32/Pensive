@@ -653,7 +653,7 @@ mod tests {
     use model::fixtures::HARBOR;
 
     use super::*;
-    use crate::test_support::{click, pensive_window};
+    use crate::test_support::{click, pensive_window, secondary};
 
     fn palette_open(view: &Entity<Pensive>, cx: &mut VisualTestContext) -> bool {
         view.read_with(cx, |pensive, _| pensive.palette_open)
@@ -722,17 +722,17 @@ mod tests {
     }
 
     #[gpui::test]
-    fn ctrl_equals_zooms_in_and_ctrl_zero_resets(cx: &mut TestAppContext) {
+    fn equals_zooms_in_and_zero_resets(cx: &mut TestAppContext) {
         let (_, cx) = pensive_window(cx);
         let rem = |cx: &mut VisualTestContext| cx.update(|window, _| window.rem_size());
         let at_100 = rem(cx);
-        cx.simulate_keystrokes("ctrl-= ctrl-=");
+        cx.simulate_keystrokes(&format!("{} {}", secondary("="), secondary("=")));
         cx.run_until_parked();
         assert_eq!(rem(cx), at_100 * 1.25);
-        cx.simulate_keystrokes("ctrl--");
+        cx.simulate_keystrokes(&secondary("-"));
         cx.run_until_parked();
         assert_eq!(rem(cx), at_100 * 1.1);
-        cx.simulate_keystrokes("ctrl-0");
+        cx.simulate_keystrokes(&secondary("0"));
         cx.run_until_parked();
         assert_eq!(rem(cx), at_100);
     }
