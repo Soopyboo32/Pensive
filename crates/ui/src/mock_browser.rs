@@ -9,7 +9,7 @@ use gpui::{
     ObjectFit, RenderImage, SharedString, Subscription, UpdateGlobal, Window, actions, div, img,
     prelude::*,
 };
-use mock::{Mock, atlas};
+use mock::{Mock, grid};
 use model::Notices;
 use settings::Settings;
 use theme::{ActiveTheme, Density, Theme, Typeset, dp};
@@ -283,7 +283,7 @@ impl MockBrowser {
     fn grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let subject = &self.subjects[self.selected];
         let mocks = self.matching(subject, cx);
-        let largest = atlas::largest(mocks.iter().map(|mock| mock.size));
+        let largest = grid::largest(mocks.iter().map(|mock| mock.size));
         let theme = cx.theme();
         let colors = &theme.colors;
         let density = cx.density();
@@ -370,12 +370,12 @@ impl MockBrowser {
                     .mt_0p5()
                     .typeset(density.small)
                     .text_color(colors.text_faint)
-                    .child(atlas::summary(subject.name, mocks.len(), largest)),
+                    .child(grid::summary(subject.name, mocks.len(), largest)),
             )
             .child(
                 div()
                     .grid()
-                    .grid_cols(atlas::columns(mocks.len()) as u16)
+                    .grid_cols(grid::columns(mocks.len()) as u16)
                     .gap_4()
                     .mt_4()
                     .children(cards),
@@ -630,7 +630,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
     }
 
     vec![
-        Mock::new("mock_browser", "browsing", |window, cx| {
+        mock_window::mock("mock_browser", "browsing", |window, cx| {
             browsing(
                 |pensive, _, cx| {
                     browser(pensive, cx, |browser, cx| {
@@ -641,7 +641,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("mock_browser", "filtered", |window, cx| {
+        mock_window::mock("mock_browser", "filtered", |window, cx| {
             browsing(
                 |pensive, _, cx| {
                     browser(pensive, cx, |browser, cx| browser.set_filter("staged", cx))
@@ -650,7 +650,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("mock_browser", "component_open", |window, cx| {
+        mock_window::mock("mock_browser", "component_open", |window, cx| {
             browsing(
                 |pensive, window, cx| {
                     let tooltip = components::mocks()

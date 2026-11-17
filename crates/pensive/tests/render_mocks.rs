@@ -1,7 +1,8 @@
 //! Renders every mock to `target/mocks/<subject>/<mock>.png`, and each subject with more than one
-//! mock to an atlas at `target/mocks/<subject>.png`. A filter renders only the mocks whose
-//! `<subject>/<mock>` contains it. The atlas is only written when the filter matches every mock of
-//! its subject, and an old one is deleted when it matches only some.
+//! mock to an atlas at `target/mocks/<subject>.png`, continued in `<subject>-2.png` and on when
+//! it's too large for one image. A filter renders only the mocks whose `<subject>/<mock>` contains
+//! it. The atlas is only written when the filter matches every mock of its subject, and an old one
+//! is deleted when it matches only some.
 //!
 //! `cargo mocks <filter>` passes the filter with `--only`, and fails when nothing matches it.
 //! `cargo test <filter>` passes it bare to every test binary, so here, as in any other test
@@ -156,15 +157,16 @@ fn main() -> gpui::Result<ExitCode> {
             }
         }
 
-        let atlas_path = folders.mocks.join(format!("{subject}.png"));
-        match atlas {
-            Some(atlas) => {
-                let image = atlas.render()?.expect("the mocks above rendered headless");
-                save(&image, &atlas_path)?;
-                println!("{}", atlas_path.display());
-            }
-            None => remove(&atlas_path)?,
+        let pages = match atlas {
+            Some(atlas) => atlas.render()?.expect("the mocks above rendered headless"),
+            None => Vec::new(),
+        };
+        for (index, page) in pages.iter().enumerate() {
+            let path = atlas_page(&folders, subject, index);
+            save(page, &path)?;
+            println!("{}", path.display());
         }
+        remove_atlas_pages(&folders, subject, pages.len())?;
     }
 
     if rendered == 0 && failed.is_empty() {
@@ -212,6 +214,27 @@ fn compare(image: &RgbaImage, file: &str, folders: &Folders) -> gpui::Result<Com
         diff.changed,
         diff_path.display()
     )))
+}
+
+/// `<subject>.png` for the first page of an atlas, then `<subject>-2.png` and on.
+fn atlas_page(folders: &Folders, subject: &str, index: usize) -> PathBuf {
+    let file = match index {
+        0 => format!("{subject}.png"),
+        index => format!("{subject}-{}.png", index + 1),
+    };
+    folders.mocks.join(file)
+}
+
+/// Removes the pages from `from` on, left by an earlier render with more of them.
+fn remove_atlas_pages(folders: &Folders, subject: &str, from: usize) -> gpui::Result<()> {
+    for index in from.. {
+        let path = atlas_page(folders, subject, index);
+        if !path.exists() {
+            return Ok(());
+        }
+        remove(&path)?;
+    }
+    Ok(())
 }
 
 fn save(image: &RgbaImage, path: &Path) -> gpui::Result<()> {
