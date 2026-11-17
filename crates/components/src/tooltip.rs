@@ -1,7 +1,7 @@
 //! A small raised box for what doesn't fit where it's anchored, or for how an action there went.
 
 use gpui::{AnyElement, AnyView, App, Context, SharedString, Window, div, prelude::*};
-use theme::{ActiveTheme, HAIRLINE, Shadow, Typeset, dp};
+use theme::{ActiveTheme, HAIRLINE, IconSize, Shadow, Typeset, dp};
 
 use crate::{Kbd, Tag, Tone};
 
@@ -90,7 +90,7 @@ impl RenderOnce for Tooltip {
                             .flex()
                             .items_center()
                             .gap_1p5()
-                            .children(self.tone.icon(14., colors))
+                            .children(self.tone.icon(IconSize::Medium, colors))
                             .child(self.content)
                             .children(self.tag),
                     )

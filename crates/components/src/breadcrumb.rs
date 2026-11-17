@@ -3,7 +3,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{AnyElement, App, Hsla, Pixels, Window, canvas, div, prelude::*};
-use theme::{ActiveTheme, Dp, ThemeColors, dp};
+use theme::{ActiveTheme, IconSize, ThemeColors, dp};
 
 use crate::{
     Icon, IconName,
@@ -13,7 +13,7 @@ use crate::{
 #[derive(IntoElement)]
 pub struct Breadcrumb {
     crumbs: Vec<AnyElement>,
-    chevron: Dp,
+    chevron: IconSize,
     fade_start: Option<fn(&ThemeColors) -> Hsla>,
 }
 
@@ -25,7 +25,7 @@ impl Breadcrumb {
                 .into_iter()
                 .map(IntoElement::into_any_element)
                 .collect(),
-            chevron: dp(12.),
+            chevron: IconSize::Small,
             fade_start: None,
         }
     }
@@ -37,8 +37,8 @@ impl Breadcrumb {
         self
     }
 
-    /// The chevron's size, 12 px unless set.
-    pub fn chevron_size(mut self, size: Dp) -> Self {
+    /// The chevron's size, small unless set.
+    pub fn chevron_size(mut self, size: IconSize) -> Self {
         self.chevron = size;
         self
     }

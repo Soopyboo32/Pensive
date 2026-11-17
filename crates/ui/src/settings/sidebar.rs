@@ -6,7 +6,7 @@ use gpui::{
     Animation, AnimationExt, AnyElement, Context, Focusable, Window, deferred, div, ease_out_quint,
     prelude::*,
 };
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset};
 
 use super::{CATEGORY_IN, CATEGORY_OUT, SettingsView, Spot, Tool, outline::Category, search::Hits};
 use crate::{notices, rail_gear::rail_gear, view_callback, view_callback_with};
@@ -120,7 +120,7 @@ impl SettingsView {
             .typeset(density.body)
             .child(
                 Icon::new(IconName::Search)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color(colors.text_faint),
             )
             .child(div().flex_1().min_w_0().child(self.search.clone()))

@@ -4,7 +4,7 @@ use components::{Breadcrumb, DiffStat, Icon, IconName, SegmentedControl};
 use gpui::{AnyElement, App, Context, div, prelude::*};
 use model::{FileChange, Source, short_sha};
 use strum::VariantArray;
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset, dp};
 
 use super::ProjectView;
 use crate::{editor::Mode, view_callback_with};
@@ -113,7 +113,7 @@ impl ProjectView {
                     .gap_1()
                     .child(
                         Icon::new(IconName::GitCommitHorizontal)
-                            .size(dp(12.))
+                            .size(IconSize::Small)
                             .color(colors.text_faint),
                     )
                     .child(

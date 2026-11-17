@@ -274,7 +274,7 @@ impl RenderOnce for CommandPalette {
                     .child(
                         div().mb_1().child(
                             Icon::new(IconName::SearchX)
-                                .size(dp(20.))
+                                .exact_size(dp(20.))
                                 .color(colors.text_faint),
                         ),
                     )

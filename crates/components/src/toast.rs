@@ -2,7 +2,7 @@
 //! drains until it folds away.
 
 use gpui::{App, ElementId, SharedString, Window, div, prelude::*, relative};
-use theme::{ActiveTheme, Dp, HAIRLINE, Shadow, Typeset, dp};
+use theme::{ActiveTheme, Dp, HAIRLINE, IconSize, Shadow, Typeset, dp};
 
 use crate::{Callback, IconButton, IconName, Tag, Tone, callback};
 
@@ -97,7 +97,7 @@ impl RenderOnce for Toast {
             .shadow(Shadow::Medium.layers())
             .children(
                 self.tone
-                    .icon(16., colors)
+                    .icon(IconSize::Large, colors)
                     .map(|icon| div().mt_0p5().child(icon)),
             )
             .child(

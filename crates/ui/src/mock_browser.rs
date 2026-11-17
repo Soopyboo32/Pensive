@@ -12,7 +12,7 @@ use gpui::{
 use mock::{Mock, grid};
 use model::Notices;
 use settings::Settings;
-use theme::{ActiveTheme, Density, Theme, Typeset, dp};
+use theme::{ActiveTheme, Density, IconSize, Theme, Typeset, dp};
 
 use crate::{
     key_binding, text_editing, text_input::TextInput, view_callback_with,
@@ -272,7 +272,7 @@ impl MockBrowser {
                     .typeset(density.body)
                     .child(
                         Icon::new(IconName::Search)
-                            .size(dp(14.))
+                            .size(IconSize::Medium)
                             .color(colors.text_faint),
                     )
                     .child(div().flex_1().child(self.input.clone())),
@@ -459,7 +459,7 @@ fn title_bar(place: &[&'static str], window: &Window, cx: &App) -> TitleBar {
                 .text_color(color)
                 .child(SharedString::new_static(crumb))
         });
-    let location = Breadcrumb::new(crumbs).chevron_size(dp(14.));
+    let location = Breadcrumb::new(crumbs).chevron_size(IconSize::Medium);
     TitleBar::new(None)
         .location(div().pl_1p5().typeset(cx.density().body).child(location))
         .controls(draws_window_controls(window))

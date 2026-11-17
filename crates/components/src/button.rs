@@ -2,7 +2,7 @@
 
 use gpui::{App, ElementId, FontWeight, Hsla, SharedString, Window, div, prelude::*};
 use strum::{IntoStaticStr, VariantArray};
-use theme::{ActiveTheme, HAIRLINE, ThemeColors, Typeset, dp};
+use theme::{ActiveTheme, HAIRLINE, IconSize, ThemeColors, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, callback};
 
@@ -163,7 +163,7 @@ impl RenderOnce for Button {
             .whitespace_nowrap()
             .children(
                 self.icon
-                    .map(|icon| Icon::new(icon).size(dp(12.)).color(label)),
+                    .map(|icon| Icon::new(icon).size(IconSize::Small).color(label)),
             )
             .child(self.label)
             .when(!self.disabled, |button| {
