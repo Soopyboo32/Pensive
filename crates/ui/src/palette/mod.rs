@@ -460,6 +460,7 @@ impl Render for PaletteView {
             &[]
         };
         let mut palette = CommandPalette::new()
+            .fill()
             .input(self.input.clone())
             .scroll(self.scroll.clone())
             .tabs(tabs.iter().copied(), tab)
@@ -494,6 +495,7 @@ impl Render for PaletteView {
             .flex()
             .flex_col()
             .min_h_0()
+            .flex_grow_1()
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::select_previous))

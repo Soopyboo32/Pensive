@@ -73,6 +73,7 @@ pub struct CommandPalette {
     selected: Option<usize>,
     scroll: Option<ScrollHandle>,
     overlay: bool,
+    fill: bool,
     opacity: f32,
     on_tab: Option<Callback<usize>>,
     on_activate: Option<Callback<usize>>,
@@ -99,6 +100,7 @@ impl CommandPalette {
             selected: None,
             scroll: None,
             overlay: false,
+            fill: false,
             opacity: 1.,
             on_tab: None,
             on_activate: None,
@@ -189,6 +191,12 @@ impl CommandPalette {
     /// Adds the shadow the palette casts over a window.
     pub fn overlay(mut self) -> Self {
         self.overlay = true;
+        self
+    }
+
+    /// Grows to the height its parent column leaves, with the results taking the extra room.
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
         self
     }
 
@@ -327,6 +335,7 @@ impl RenderOnce for CommandPalette {
             .occlude()
             .w(dp(576.))
             .min_h_0()
+            .when(self.fill, |palette| palette.flex_grow_1())
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -345,6 +354,7 @@ impl RenderOnce for CommandPalette {
                     .id("results")
                     .flex()
                     .flex_col()
+                    .flex_grow_1()
                     .min_h_0()
                     .p_1()
                     .overflow_y_scroll()
