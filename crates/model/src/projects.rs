@@ -328,6 +328,7 @@ impl Projects {
                 let document = cx.new(|_| Document::new(worktree.clone(), key, contents, git));
                 let saved = cx.subscribe(&document, move |this, _, event, cx| match event {
                     DocumentEvent::Saved => this.read_changes(worktree.clone(), cx).detach(),
+                    DocumentEvent::Changed(_) => {}
                 });
                 this._saves.push(saved);
                 this.documents.insert(entry, document);

@@ -9,7 +9,7 @@ use std::{
 };
 
 use gpui::{Context, EventEmitter, Task};
-use ropey::Rope;
+use text::{Rope, SourceId, SourceStamp, TextChange, TextEdit, TextSnapshot};
 
 use crate::{
     Backend, FileKey, FileVersions, GitBackend, LineDiff, Notice, Notices, Origin, Severity,
@@ -17,6 +17,8 @@ use crate::{
 };
 
 pub enum DocumentEvent {
+    /// One ordered text transaction; consumers must match its `before` stamp.
+    Changed(TextChange),
     /// The text on disk now matches the document.
     Saved,
 }
@@ -26,9 +28,12 @@ pub struct Document {
     key: FileKey,
     /// The committed text the diff compares with.
     base: Arc<str>,
+    /// Immutable old side, with an identity independent of the editable side.
+    base_snapshot: TextSnapshot,
     /// Where each line of `base` sits, for showing removed lines.
     base_lines: Vec<Range<usize>>,
     text: Rope,
+    text_source: SourceId,
     /// The file as last read or written, so a save can tell whether something else changed it.
     on_disk: Version,
     /// Counts edits, so a save knows which text it was for.
@@ -40,8 +45,9 @@ pub struct Document {
     /// document is reloaded or the file is overwritten.
     conflict: Option<Version>,
     diff: LineDiff,
-    /// The diff running. Replacing it cancels it, so only the newest one lands.
+    /// The diff running. Replacing it cancels it; stamps also guard publication.
     diffing: Option<Task<()>>,
+    diff_generation: usize,
     undo: Vec<Vec<Edit>>,
     redo: Vec<Vec<Edit>>,
     /// Whether the next edit may join the last undo step.
@@ -64,11 +70,20 @@ struct Edit {
     new: String,
 }
 
+/// Both inputs and the particular request must still match before a diff can land.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DiffStamp {
+    base: SourceStamp,
+    text: SourceStamp,
+    generation: usize,
+}
+
 impl EventEmitter<DocumentEvent> for Document {}
 
 /// A file's text and diff, prepared off the UI thread for a [`Document`] to open with.
 pub(crate) struct Contents {
     base: String,
+    base_rope: Rope,
     base_lines: Vec<Range<usize>>,
     text: Rope,
     on_disk: Version,
@@ -90,6 +105,7 @@ impl Contents {
             Version::Binary => return None,
         };
         Some(Self {
+            base_rope: Rope::from_str(&base),
             base_lines: line_ranges(&base),
             diff: LineDiff::new(&base, &text),
             text: Rope::from_str(&text),
@@ -114,15 +130,24 @@ impl Document {
             worktree,
             key,
             base: contents.base.into(),
+            base_snapshot: TextSnapshot::new(
+                SourceStamp {
+                    source: SourceId::default(),
+                    revision: 0,
+                },
+                &contents.base_rope,
+            ),
             base_lines: contents.base_lines,
             on_disk: contents.on_disk,
             text: contents.text,
+            text_source: SourceId::default(),
             revision: 0,
             saved_revision: 0,
             disk_generation: 0,
             conflict: None,
             diff: contents.diff,
             diffing: None,
+            diff_generation: 0,
             undo: Vec::new(),
             redo: Vec::new(),
             grouping: false,
@@ -143,6 +168,23 @@ impl Document {
 
     pub fn text(&self) -> &Rope {
         &self.text
+    }
+
+    /// A cheap immutable view of the existing editable/new rope, without a second buffer.
+    pub fn snapshot(&self) -> TextSnapshot {
+        TextSnapshot::new(self.text_stamp(), &self.text)
+    }
+
+    /// The immutable committed/old side. Base refreshes advance only this source's revision.
+    pub fn base_snapshot(&self) -> TextSnapshot {
+        self.base_snapshot.clone()
+    }
+
+    fn text_stamp(&self) -> SourceStamp {
+        SourceStamp {
+            source: self.text_source.clone(),
+            revision: self.revision,
+        }
     }
 
     /// Which lines differ from the committed text. Recomputed off the UI thread after each edit,
@@ -171,11 +213,22 @@ impl Document {
 
     /// Replaces the bytes in `range` with `text`. Typing or deleting next to the last edit joins
     /// its undo step until [`Self::break_undo_group`].
+    ///
+    /// Panics for reversed, out-of-bounds or non-UTF-8-boundary ranges. Validate untrusted
+    /// ranges with `text::validate_range` before calling this editing boundary.
     pub fn edit(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
-        if !self.is_editable() || (range.is_empty() && text.is_empty()) {
+        if !self.is_editable() {
             return;
         }
-        let edit = self.apply(range, text);
+        self.replace(range, text, cx);
+    }
+
+    fn replace(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
+        text::validate_range(&self.text, &range).expect("edits use valid UTF-8 byte ranges");
+        if range.is_empty() && text.is_empty() {
+            return;
+        }
+        let (edit, change) = self.apply(range, text);
         self.redo.clear();
         match self.undo.last_mut() {
             Some(step)
@@ -186,7 +239,7 @@ impl Document {
             _ => self.undo.push(vec![edit]),
         }
         self.grouping = true;
-        self.changed(cx);
+        self.changed(vec![change], cx);
     }
 
     /// Starts a new undo step with the next edit, as moving the cursor does.
@@ -198,8 +251,10 @@ impl Document {
     pub fn undo(&mut self, cx: &mut Context<Self>) -> Option<usize> {
         let step = self.undo.pop()?;
         let mut cursor: Option<usize> = None;
+        let mut changes = Vec::with_capacity(step.len());
         for edit in step.iter().rev() {
-            self.apply(edit.start..edit.start + edit.new.len(), &edit.old);
+            let (_, change) = self.apply(edit.start..edit.start + edit.new.len(), &edit.old);
+            changes.push(change);
             let end = edit.start + edit.old.len();
             // Text restored at or before the cursor moves it along.
             let moved = cursor.map(|cursor| {
@@ -214,7 +269,7 @@ impl Document {
         let cursor = cursor.unwrap_or(0);
         self.redo.push(step);
         self.grouping = false;
-        self.changed(cx);
+        self.changed(changes, cx);
         Some(cursor)
     }
 
@@ -222,42 +277,72 @@ impl Document {
     pub fn redo(&mut self, cx: &mut Context<Self>) -> Option<usize> {
         let step = self.redo.pop()?;
         let mut cursor = 0;
+        let mut changes = Vec::with_capacity(step.len());
         for edit in &step {
-            self.apply(edit.start..edit.start + edit.old.len(), &edit.new);
+            let (_, change) = self.apply(edit.start..edit.start + edit.old.len(), &edit.new);
+            changes.push(change);
             cursor = edit.start + edit.new.len();
         }
         self.undo.push(step);
         self.grouping = false;
-        self.changed(cx);
+        self.changed(changes, cx);
         Some(cursor)
     }
 
-    fn apply(&mut self, range: Range<usize>, text: &str) -> Edit {
-        let on_boundary = |byte| self.text.char_to_byte(self.text.byte_to_char(byte)) == byte;
-        debug_assert!(
-            on_boundary(range.start) && on_boundary(range.end),
-            "edits start and end between characters"
-        );
+    fn apply(&mut self, range: Range<usize>, text: &str) -> (Edit, TextEdit) {
+        let change = TextEdit::replacement(&self.text, range.clone(), text)
+            .expect("edits use valid UTF-8 byte ranges");
         let start = self.text.byte_to_char(range.start);
         let end = self.text.byte_to_char(range.end);
         let old = self.text.slice(start..end).to_string();
         self.text.remove(start..end);
         self.text.insert(start, text);
-        Edit {
-            start: range.start,
-            old,
-            new: text.to_owned(),
-        }
+        (
+            Edit {
+                start: range.start,
+                old,
+                new: text.to_owned(),
+            },
+            change,
+        )
     }
 
     /// Bumps the revision and diffs the new text.
-    fn changed(&mut self, cx: &mut Context<Self>) {
-        self.revision += 1;
+    fn changed(&mut self, edits: Vec<TextEdit>, cx: &mut Context<Self>) {
+        let before = self.text_stamp();
+        let after = before.next();
+        self.revision = after.revision;
+        cx.emit(DocumentEvent::Changed(TextChange {
+            before,
+            after,
+            edits,
+        }));
         self.rediff(cx);
+    }
+
+    fn diff_stamp(&self) -> DiffStamp {
+        DiffStamp {
+            base: self.base_snapshot.stamp().clone(),
+            text: self.text_stamp(),
+            generation: self.diff_generation,
+        }
+    }
+
+    fn accept_diff(&mut self, stamp: &DiffStamp, diff: LineDiff) -> bool {
+        if *stamp != self.diff_stamp() {
+            return false;
+        }
+        self.diff = diff;
+        true
     }
 
     /// Diffs the text off the UI thread. A newer diff drops the one still running.
     fn rediff(&mut self, cx: &mut Context<Self>) {
+        self.diff_generation = self
+            .diff_generation
+            .checked_add(1)
+            .expect("diff generation exhausted");
+        let stamp = self.diff_stamp();
         let (base, text) = (self.base.clone(), self.text.clone());
         self.diffing = Some(cx.spawn(async move |this, cx| {
             let diff = cx
@@ -265,8 +350,9 @@ impl Document {
                 .spawn(async move { LineDiff::new(&base, &text.to_string()) })
                 .await;
             this.update(cx, |this, cx| {
-                this.diff = diff;
-                cx.notify();
+                if this.accept_diff(&stamp, diff) {
+                    cx.notify();
+                }
             })
             .ok();
         }));
@@ -362,6 +448,7 @@ impl Document {
     /// Replaces the text with what's on disk, as one undo step, so the edits it drops can come
     /// back. Clears a conflict.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
+        let stamp = (self.text_stamp(), self.disk_stamp());
         let (worktree, path) = (self.worktree.clone(), self.key.path.clone());
         let title = format!("Couldn't read {}", self.key.path.display());
         let read = self
@@ -371,8 +458,12 @@ impl Document {
             let Ok(on_disk) = read.await else {
                 return;
             };
-            this.update(cx, |this, cx| this.take_disk_text(on_disk, cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                if stamp == (this.text_stamp(), this.disk_stamp()) && !this.saves.is_busy() {
+                    this.take_disk_text(on_disk, cx);
+                }
+            })
+            .ok();
         })
         .detach();
     }
@@ -401,6 +492,8 @@ impl Document {
         let on_disk = versions.new;
         if *self.base != *base {
             self.base_lines = line_ranges(&base);
+            self.base_snapshot =
+                TextSnapshot::new(self.base_snapshot.stamp().next(), &Rope::from_str(&base));
             self.base = base.into();
             self.rediff(cx);
         }
@@ -412,7 +505,10 @@ impl Document {
 
     fn set_on_disk(&mut self, on_disk: Version) {
         self.on_disk = on_disk;
-        self.disk_generation += 1;
+        self.disk_generation = self
+            .disk_generation
+            .checked_add(1)
+            .expect("disk generation exhausted");
     }
 
     fn take_disk_text(&mut self, on_disk: Version, cx: &mut Context<Self>) {
@@ -421,8 +517,29 @@ impl Document {
         };
         self.conflict = None;
         if self.text != text.as_str() {
+            // One precise replacement, leaving shared prefix/suffix bytes untouched. Compare
+            // scalars so a shared leading UTF-8 byte cannot split a multibyte character.
+            let start: usize = self
+                .text
+                .chars()
+                .zip(text.chars())
+                .take_while(|(old, new)| old == new)
+                .map(|(char, _)| char.len_utf8())
+                .sum();
+            let tail = self.text.byte_slice(start..);
+            let suffix: usize = tail
+                .chars_at(tail.len_chars())
+                .reversed()
+                .zip(text[start..].chars().rev())
+                .take_while(|(old, new)| old == new)
+                .map(|(char, _)| char.len_utf8())
+                .sum();
             self.grouping = false;
-            self.edit(0..self.text.len_bytes(), text, cx);
+            self.replace(
+                start..self.text.len_bytes() - suffix,
+                &text[start..text.len() - suffix],
+                cx,
+            );
             self.grouping = false;
         }
         self.set_on_disk(on_disk);
@@ -445,7 +562,7 @@ fn joins(last: &Edit, next: &Edit) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
 
     use gpui::{AppContext as _, Entity, TestAppContext};
 
@@ -490,6 +607,281 @@ mod tests {
 
     fn text(document: &Entity<Document>, cx: &mut TestAppContext) -> String {
         document.read_with(cx, |document, _| document.text().to_string())
+    }
+
+    fn sample(text: &str, cx: &mut TestAppContext) -> (Entity<Document>, Arc<FakeGit>) {
+        let git = Arc::new(FakeGit::default());
+        git.write_file(Path::new(PENSIVE_ROOT), Path::new(PATH), text)
+            .unwrap();
+        let contents = Contents::new(FileVersions {
+            old: Version::Text(text.into()),
+            new: Version::Text(text.into()),
+        })
+        .unwrap();
+        let document = cx.new(|_| {
+            Document::new(
+                PENSIVE_ROOT.into(),
+                FileKey {
+                    source: Source::Uncommitted,
+                    path: PATH.into(),
+                },
+                contents,
+                Backend::new(git.clone(), Origin::Git),
+            )
+        });
+        (document, git)
+    }
+
+    fn changes(
+        document: &Entity<Document>,
+        cx: &mut TestAppContext,
+    ) -> Rc<RefCell<Vec<TextChange>>> {
+        let changes = Rc::new(RefCell::new(Vec::new()));
+        cx.update(|cx| {
+            let changes = changes.clone();
+            cx.subscribe(document, move |_, event: &DocumentEvent, _| {
+                if let DocumentEvent::Changed(change) = event {
+                    changes.borrow_mut().push(change.clone());
+                }
+            })
+            .detach();
+        });
+        changes
+    }
+
+    #[gpui::test]
+    fn snapshots_distinguish_documents_and_sides_and_survive_edits(cx: &mut TestAppContext) {
+        let (document, _) = sample("é\r\n😀", cx);
+        let (other, _) = sample("é\r\n😀", cx);
+        let before = document.read_with(cx, |document, _| document.snapshot());
+        let base = document.read_with(cx, |document, _| document.base_snapshot());
+        let independent = other.read_with(cx, |document, _| document.snapshot());
+        assert_ne!(before.stamp(), independent.stamp());
+        assert_ne!(before.stamp(), base.stamp());
+        assert_eq!(before.stamp().revision, 0);
+        assert_eq!(independent.stamp().revision, 0);
+        document.update(cx, |document, cx| document.edit(0..2, "中", cx));
+        let after = document.read_with(cx, |document, _| document.snapshot());
+        assert_eq!(after.stamp(), &before.stamp().next());
+        assert_eq!(before.rope().to_string(), "é\r\n😀");
+        assert_eq!(base.rope().to_string(), "é\r\n😀");
+        assert_eq!(after.rope().to_string(), "中\r\n😀");
+    }
+
+    #[gpui::test]
+    fn grouped_undo_and_redo_publish_ordered_byte_edits_with_one_revision(cx: &mut TestAppContext) {
+        let (document, _) = sample("start\r\nend", cx);
+        let changes = changes(&document, cx);
+        document.update(cx, |document, cx| {
+            document.edit(7..7, "é", cx);
+            document.edit(9..9, "😀", cx);
+            assert_eq!(document.undo(cx), Some(7));
+            assert_eq!(document.text.to_string(), "start\r\nend");
+            // Keep the existing revision-based dirty semantics even when undo restores bytes.
+            assert!(document.is_dirty());
+            assert_eq!(document.redo(cx), Some(13));
+        });
+        let changes = changes.borrow();
+        assert_eq!(changes.len(), 4);
+        for (index, change) in changes.iter().enumerate() {
+            assert_eq!(change.before.revision, index);
+            assert_eq!(change.after, change.before.next());
+            assert_eq!(change.first_changed_line(), 1);
+            if index > 0 {
+                assert_eq!(changes[index - 1].after, change.before);
+            }
+        }
+        let ranges = |change: &TextChange| {
+            change
+                .edits
+                .iter()
+                .map(|edit| (edit.old.clone(), edit.new.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ranges(&changes[0]), [(7..7, 7..9)]);
+        assert_eq!(ranges(&changes[1]), [(9..9, 9..13)]);
+        assert_eq!(ranges(&changes[2]), [(9..13, 9..9), (7..9, 7..7)]);
+        assert_eq!(ranges(&changes[3]), [(7..7, 7..9), (9..9, 9..13)]);
+        assert_eq!(
+            changes[2].edits[0].old_points.end,
+            text::BytePoint { line: 1, column: 6 }
+        );
+        assert_eq!(
+            changes[2].edits[1].new_points.end,
+            text::BytePoint { line: 1, column: 0 }
+        );
+        assert_eq!(text(&document, cx), "start\r\né😀end");
+    }
+
+    #[gpui::test]
+    fn replacement_deletion_and_inverse_records_track_line_changes(cx: &mut TestAppContext) {
+        let (document, _) = sample("é\r\n😀x\nlast", cx);
+        let changes = changes(&document, cx);
+        document.update(cx, |document, cx| {
+            document.edit(4..9, "中\r\n🙂", cx);
+            document.undo(cx);
+            document.redo(cx);
+            document.break_undo_group();
+            document.edit(2..4, "", cx);
+        });
+        let changes = changes.borrow();
+        assert_eq!(changes.len(), 4);
+        let replacement = &changes[0].edits[0];
+        let undo = &changes[1].edits[0];
+        assert_eq!(replacement.old, 4..9);
+        assert_eq!(replacement.new, 4..13);
+        assert_eq!(undo.old, replacement.new);
+        assert_eq!(undo.new, replacement.old);
+        assert_eq!(undo.old_points, replacement.new_points);
+        assert_eq!(undo.new_points, replacement.old_points);
+        assert_eq!(changes[2].edits[0], *replacement);
+        assert_eq!(changes[3].edits[0].old, 2..4);
+        assert_eq!(changes[3].edits[0].new, 2..2);
+        assert_eq!(changes[3].first_changed_line(), 0);
+        assert_eq!(text(&document, cx), "é中\r\n🙂\nlast");
+    }
+
+    #[gpui::test]
+    async fn reload_is_a_precise_transaction_and_can_be_undone(cx: &mut TestAppContext) {
+        let (document, git) = sample("same\r\né tail\r\n", cx);
+        let changes = changes(&document, cx);
+        document.update(cx, |document, cx| document.edit(8..13, " mine", cx));
+        git.write_file(
+            Path::new(PENSIVE_ROOT),
+            Path::new(PATH),
+            "same\r\nê changed\r\n",
+        )
+        .unwrap();
+        document.update(cx, |document, cx| document.reload(cx));
+        cx.run_until_parked();
+        assert_eq!(text(&document, cx), "same\r\nê changed\r\n");
+        assert!(!document.read_with(cx, |document, _| document.is_dirty()));
+        {
+            let changes = changes.borrow();
+            assert_eq!(changes.len(), 2);
+            let reload = &changes[1];
+            assert_eq!(reload.before.revision, 1);
+            assert_eq!(reload.after.revision, 2);
+            assert_eq!(reload.first_changed_line(), 1);
+            assert_eq!(reload.edits[0].old, 6..13);
+            assert_eq!(reload.edits[0].new, 6..16);
+            assert_eq!(
+                reload.edits[0].new_points.end,
+                text::BytePoint {
+                    line: 1,
+                    column: 10
+                }
+            );
+        }
+        document.update(cx, |document, cx| document.undo(cx));
+        assert_eq!(text(&document, cx), "same\r\né mine\r\n");
+        document.update(cx, |document, cx| document.redo(cx));
+        assert_eq!(text(&document, cx), "same\r\nê changed\r\n");
+        document.update(cx, |document, cx| document.reload(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            changes.borrow().len(),
+            4,
+            "unchanged reload publishes no edit"
+        );
+        assert!(!document.read_with(cx, |document, _| document.is_dirty()));
+    }
+
+    #[gpui::test]
+    fn base_only_refresh_invalidates_old_source_and_diff_without_editing(cx: &mut TestAppContext) {
+        let (document, _) = sample("same\r\n", cx);
+        let changes = changes(&document, cx);
+        document.update(cx, |document, cx| {
+            let base = document.base_snapshot();
+            let text = document.snapshot();
+            let diff = document.diff_stamp();
+            let versions = FileVersions {
+                old: Version::Text("new base\r\n".into()),
+                new: document.on_disk.clone(),
+            };
+            document.refresh(document.disk_stamp(), versions.clone(), cx);
+            assert_eq!(document.base_snapshot.stamp(), &base.stamp().next());
+            assert_eq!(document.snapshot().stamp(), text.stamp());
+            assert_eq!(base.rope().to_string(), "same\r\n");
+            assert_eq!(document.base_snapshot.rope().to_string(), "new base\r\n");
+            assert!(!document.accept_diff(&diff, LineDiff::default()));
+            assert!(!document.is_dirty());
+            let refreshed = document.diff_stamp();
+            document.refresh(document.disk_stamp(), versions, cx);
+            assert_eq!(
+                document.diff_stamp(),
+                refreshed,
+                "unchanged base retains its stamp"
+            );
+        });
+        cx.run_until_parked();
+        assert!(changes.borrow().is_empty());
+        document.read_with(cx, |document, _| {
+            assert_eq!(*document.diff(), LineDiff::new("new base\r\n", "same\r\n"));
+        });
+    }
+
+    #[gpui::test]
+    fn diff_publication_rejects_other_sources_revisions_and_generations(cx: &mut TestAppContext) {
+        let (document, _) = sample("text\n", cx);
+        let (other, _) = sample("text\n", cx);
+        let unrelated = other.read_with(cx, |document, _| document.diff_stamp());
+        document.update(cx, |document, cx| {
+            assert!(!document.accept_diff(&unrelated, LineDiff::default()));
+            let before_edit = document.diff_stamp();
+            document.edit(0..0, "!", cx);
+            let current = document.diff_stamp();
+            let mut stale = current.clone();
+            stale.text = before_edit.text.clone();
+            assert!(!document.accept_diff(&stale, LineDiff::default()));
+            let mut stale = current.clone();
+            stale.base.source = SourceId::default();
+            assert!(!document.accept_diff(&stale, LineDiff::default()));
+            document.rediff(cx);
+            assert!(
+                !document.accept_diff(&current, LineDiff::default()),
+                "same inputs, superseded request"
+            );
+            let expected = LineDiff::new("text\n", "!text\n");
+            assert!(document.accept_diff(&document.diff_stamp(), expected.clone()));
+            assert_eq!(*document.diff(), expected);
+            assert!(!document.accept_diff(&before_edit, LineDiff::default()));
+            assert_eq!(
+                *document.diff(),
+                expected,
+                "rejection preserves the published result"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn edits_overtake_a_pending_reload(cx: &mut TestAppContext) {
+        let (document, git) = sample("original\n", cx);
+        git.write_file(Path::new(PENSIVE_ROOT), Path::new(PATH), "disk\n")
+            .unwrap();
+        document.update(cx, |document, cx| {
+            document.reload(cx);
+            document.edit(0..0, "new edit\n", cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(text(&document, cx), "new edit\noriginal\n");
+        assert!(document.read_with(cx, |document, _| document.is_dirty()));
+    }
+
+    #[gpui::test]
+    fn saving_keeps_original_unicode_and_crlf_bytes_and_snapshot_stamp(cx: &mut TestAppContext) {
+        let (document, git) = sample("é\r\n😀\r\n", cx);
+        document.update(cx, |document, cx| {
+            document.edit(4..8, "中", cx);
+            document.save(cx);
+        });
+        let snapshot = document.read_with(cx, |document, _| document.snapshot());
+        cx.run_until_parked();
+        assert_eq!(on_disk(&git).as_bytes(), "é\r\n中\r\n".as_bytes());
+        document.read_with(cx, |document, _| {
+            assert_eq!(document.snapshot().stamp(), snapshot.stamp());
+            assert!(!document.is_dirty());
+        });
     }
 
     #[gpui::test]

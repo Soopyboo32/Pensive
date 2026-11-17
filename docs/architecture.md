@@ -9,7 +9,8 @@ Pensive is a Cargo workspace. A crate can only use the crates it lists as depend
 | `pensive` | The app. Opens the window and gives each model its backend, which differ between the desktop and the browser. | `ui`, `model`, `git` and `config` on the desktop, `settings`, `theme`, `assets` |
 | `ui` | Views: screens and panels that read models and own their view state. | `assets`, `components`, `model`, `settings`, `theme` |
 | `components` | Stateless building blocks that render from props and the theme. | `theme` |
-| `model` | Application state, and the traits that I/O backends implement. | |
+| `model` | Application state, and the traits that I/O backends implement. | `text` |
+| `text` | Immutable Rope snapshots, source stamps, validated byte coordinates and ordered edit records. No I/O or mutable document owner. | |
 | `git` | The Git backend, which runs the `git` command line. | `model` |
 | `config` | The config folder backend, which reads, writes and watches the settings and theme files. | `model` |
 | `settings` | Declared settings, and the store that holds the settings file's text and the values in it. It does no I/O. | |
@@ -17,7 +18,15 @@ Pensive is a Cargo workspace. A crate can only use the crates it lists as depend
 | `mock` | Named mock states for views, rendered without a window. | `theme`, `assets` |
 | `assets` | Files bundled into the app, such as icons, served to GPUI by path. | |
 
-Every crate except `git` and `config` also depends on `gpui`.
+Every crate except `git`, `config` and `text` also depends on `gpui`.
+
+`model::Document` alone owns mutable file text, undo, saving/conflicts and diff scheduling.
+It publishes cheap `text::TextSnapshot` values from its existing Rope, with separate source
+identities and revisions for the base and editable sides. The base also retains its existing
+flat string for borrowed removed-line display; its immutable Rope is built when base contents
+arrive, never on a snapshot request. Background diff publication checks both source stamps
+and its request generation. [Shared text](decisions/shared-text.md) defines the byte contract,
+transaction ordering and invalidation rules.
 
 ## Rules
 

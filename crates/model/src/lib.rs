@@ -30,6 +30,6 @@ pub use git_problem::{GitProblem, GitVersion, Platform};
 pub use notice::{FixtureGap, Notice, Origin, Severity};
 pub use notices::{Held, Notices};
 pub use projects::{Branch, Project, ProjectId, Projects, Work, WorkKind, Worktree};
-pub use ropey::Rope;
 pub use run::{PROJECT_FILE, RunConfig, run_configs};
+pub use text::Rope;
 pub use worktree_files::WorktreeFiles;

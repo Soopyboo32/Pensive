@@ -16,6 +16,7 @@ mock = { path = "crates/mock" }
 model = { path = "crates/model" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }
+text = { path = "crates/text" }
 ui = { path = "crates/ui" }
 
 anyhow = "1"
