@@ -662,7 +662,7 @@ mod tests {
     #[gpui::test]
     async fn undoing_a_change_leaves_the_cursor_unfolded(cx: &mut TestAppContext) {
         let (editor, _, cx) = editor(cx).await;
-        cx.simulate_keystrokes("ctrl-end");
+        cx.simulate_keystrokes(&secondary("end"));
         cx.simulate_input("x");
         cx.run_until_parked();
         editor.update_in(cx, |editor, window, cx| editor.undo(&Undo, window, cx));
