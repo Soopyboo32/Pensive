@@ -13,6 +13,8 @@ use crate::mock_window;
 const PALETTE: usize = 1;
 /// The Editor category, with one page.
 const EDITOR: usize = 2;
+/// The Files category, whose first page has the most settings.
+const FILES: usize = 3;
 /// Appearance's Size page.
 const SIZE: Spot = Spot {
     category: 0,
@@ -59,6 +61,16 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
+        mock_window::mock("settings", "names_hidden", |w, cx| {
+            window(
+                |view, cx| {
+                    view.names = false;
+                    cx.notify();
+                },
+                w,
+                cx,
+            )
+        }),
         mock_window::mock("settings", "command_palette", |w, cx| {
             window(
                 |view, cx| {
@@ -67,6 +79,23 @@ pub(crate) fn mocks() -> Vec<Mock> {
                             category: PALETTE,
                             page: 0,
                         },
+                        None,
+                        cx,
+                    )
+                },
+                w,
+                cx,
+            )
+        }),
+        mock_window::mock("settings", "reading_a_setting", |w, cx| {
+            window(
+                |view, cx| {
+                    view.jump_to(
+                        Spot {
+                            category: FILES,
+                            page: 0,
+                        },
+                        Some(3),
                         cx,
                     )
                 },
@@ -82,6 +111,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                             category: PALETTE,
                             page: 2,
                         },
+                        None,
                         cx,
                     )
                 },
@@ -97,6 +127,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                             category: EDITOR,
                             page: 0,
                         },
+                        None,
                         cx,
                     )
                 },
@@ -111,7 +142,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
             window(|view, cx| view.search_in(PALETTE, "qwerty", cx), w, cx)
         }),
         mock_window::mock("settings", "size_changed", |w, cx| {
-            let view = window(|view, cx| view.jump_to(SIZE, cx), w, cx);
+            let view = window(|view, cx| view.jump_to(SIZE, None, cx), w, cx);
             Settings::update_global(cx, |settings, _| {
                 settings.load("zoom = 110\ncode_size = 15\n")
             });

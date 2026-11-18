@@ -51,9 +51,9 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        mock_window::mock("project", "search_not_wired", |window, cx| {
+        mock_window::mock("project", "pull_requests_not_wired", |window, cx| {
             framed(
-                |view, _, cx| view.show_notice(Control::Panel(Panel::Search), cx),
+                |view, _, cx| view.show_notice(Control::Panel(Panel::PullRequests), cx),
                 window,
                 cx,
             )

@@ -1,5 +1,5 @@
 //! Which settings match a search: those in the category being read first, then every other
-//! category's together, best match first.
+//! category's, with each page's matches together and the best match's page first.
 
 use std::ops::Range;
 
@@ -12,6 +12,8 @@ pub(crate) struct Hit {
     pub category: usize,
     pub page: usize,
     pub setting: &'static dyn AnySetting,
+    /// Where the setting is on its page.
+    pub index: usize,
     /// Byte ranges of the setting's name that matched, empty when something else did.
     pub matches: Vec<Range<usize>>,
     score: u32,
@@ -48,7 +50,7 @@ pub(crate) fn search(outline: &[Category], query: &str, current: usize) -> Hits 
     for (category_index, category) in outline.iter().enumerate() {
         for (page_index, page) in category.pages.iter().enumerate() {
             let page_score = fuzzy.score(page.name).map(|(score, _)| score / 2);
-            for setting in &page.settings {
+            for (index, setting) in page.settings.iter().enumerate() {
                 let name = fuzzy.score(setting.name());
                 let described = setting
                     .description()
@@ -68,6 +70,7 @@ pub(crate) fn search(outline: &[Category], query: &str, current: usize) -> Hits 
                     category: category_index,
                     page: page_index,
                     setting: *setting,
+                    index,
                     matches: name.map(|(_, matches)| matches).unwrap_or_default(),
                     score,
                 };
@@ -82,16 +85,22 @@ pub(crate) fn search(outline: &[Category], query: &str, current: usize) -> Hits 
     hits.here.sort_by_key(|hit| std::cmp::Reverse(hit.score));
     hits.elsewhere
         .sort_by_key(|hit| std::cmp::Reverse(hit.score));
-    // Each other category's matches stay together, the category with the best match first.
-    let mut order: Vec<usize> = Vec::new();
-    for hit in &hits.elsewhere {
-        if !order.contains(&hit.category) {
-            order.push(hit.category);
+    keep_together(&mut hits.here, |hit| hit.page);
+    keep_together(&mut hits.elsewhere, |hit| (hit.category, hit.page));
+    keep_together(&mut hits.elsewhere, |hit| hit.category);
+    hits
+}
+
+/// Puts hits with the same `group` next to each other, the group seen first going first.
+fn keep_together<G: PartialEq>(hits: &mut [Hit], group: impl Fn(&Hit) -> G) {
+    let mut order: Vec<G> = Vec::new();
+    for hit in hits.iter() {
+        let seen = group(hit);
+        if !order.contains(&seen) {
+            order.push(seen);
         }
     }
-    hits.elsewhere
-        .sort_by_key(|hit| order.iter().position(|category| *category == hit.category));
-    hits
+    hits.sort_by_key(|hit| order.iter().position(|seen| *seen == group(hit)));
 }
 
 #[cfg(test)]
@@ -163,6 +172,21 @@ mod tests {
         let mut grouped = categories.clone();
         grouped.dedup();
         assert_eq!(grouped.len(), 2, "{categories:?}");
+    }
+
+    #[test]
+    fn each_page_stays_together() {
+        let mut outline = outline();
+        outline[2].pages = ["First", "Second"]
+            .map(|name| Page {
+                name,
+                settings: vec![&TOASTS, &TABS, &THEME],
+            })
+            .into();
+        let hits = search(&outline, "t", 2);
+        let mut pages: Vec<usize> = hits.here.iter().map(|hit| hit.page).collect();
+        pages.dedup();
+        assert_eq!(pages.len(), 2, "{pages:?}");
     }
 
     #[test]
