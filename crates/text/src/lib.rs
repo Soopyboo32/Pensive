@@ -2,7 +2,6 @@
 //!
 //! Source ranges are half-open UTF-8 byte ranges. Offsets must be scalar boundaries;
 //! neither conversion nor slicing silently rounds or normalizes text. CRLF is retained.
-//! Snapshot and identity design draws on SoopyCode's editor-model; see NOTICE.
 
 use std::{fmt, ops::Range, sync::Arc};
 
