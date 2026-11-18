@@ -59,20 +59,46 @@ pub struct Setting<T: 'static> {
     pub control: Control<T>,
 }
 
+/// How a setting is changed, and which values the file can give it.
+///
+/// Every control except [`Control::Select`] only accepts its choices. `Settings::load` reads those
+/// lists while other settings still read as their defaults, so the values a list accepts can't
+/// depend on another setting. Its labels and order can.
 pub enum Control<T: 'static> {
-    /// On or off, for a `bool`.
-    Toggle,
+    /// Two values to flip between, off first. [`Control::Toggle`] is this for a `bool`.
+    Switch(fn(&App) -> [Choice<T>; 2]),
     /// Two to four short choices side by side.
     Segmented(fn(&App) -> Vec<Choice<T>>),
-    /// A longer list of choices, or one only known at runtime.
+    /// A longer list of choices, or one only known at runtime. The file can hold a value that
+    /// isn't listed, such as an installed font, and the control shows it as written.
     Select(fn(&App) -> Vec<Choice<T>>),
     /// Ordered choices stepped through one at a time, stopping at either end.
     Stepper(fn(&App) -> Vec<Choice<T>>),
 }
 
+impl Control<bool> {
+    /// On or off. Only a `bool` setting can use it, so this fails to compile:
+    ///
+    /// ```compile_fail
+    /// static STEPS: settings::Setting<u32> = settings::Setting {
+    ///     key: "steps",
+    ///     name: "Steps",
+    ///     description: "",
+    ///     default: 0,
+    ///     control: settings::Control::Toggle,
+    /// };
+    /// ```
+    #[expect(
+        non_upper_case_globals,
+        reason = "declarations name it the way they name the other controls"
+    )]
+    pub const Toggle: Self = Self::Switch(|_| [Choice::new(false, "Off"), Choice::new(true, "On")]);
+}
+
 pub struct Choice<T> {
     pub value: T,
     pub label: SharedString,
+    also: Option<T>,
 }
 
 impl<T> Choice<T> {
@@ -80,7 +106,24 @@ impl<T> Choice<T> {
         Self {
             value,
             label: label.into(),
+            also: None,
         }
+    }
+
+    /// Makes `value` count as this choice too. Picking the choice still sets [`Choice::value`].
+    pub fn also(mut self, value: T) -> Self {
+        self.also = Some(value);
+        self
+    }
+
+    fn values(&self) -> impl Iterator<Item = &T> {
+        std::iter::once(&self.value).chain(&self.also)
+    }
+}
+
+impl<T: PartialEq> Choice<T> {
+    fn holds(&self, value: &T) -> bool {
+        self.values().any(|held| held == value)
     }
 }
 
@@ -113,23 +156,22 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Sync> Setting<T> {
             .unwrap_or_else(|| self.default.clone())
     }
 
-    /// Changes the value. Setting the default removes the key, so the file only holds changes.
+    /// Changes the value. Setting the default removes the key, so the file only holds changes. A
+    /// value TOML can't hold, such as `None`, removes it too, which leaves the default.
     pub fn set(&self, value: T, cx: &mut App) {
         let value = (value != self.default)
-            .then(|| toml::Value::try_from(value).expect("setting values serialize to TOML"));
+            .then(|| toml::Value::try_from(value).ok())
+            .flatten();
         cx.default_global::<Settings>();
         Settings::update_global(cx, |settings, _| settings.edit(self.key, value));
     }
 
-    /// What a control shows for `value`: a choice's label, On or Off, or the value as written.
+    /// What a control shows for `value`: a choice's label, or the value as written.
     fn label(&self, value: &T, cx: &App) -> SharedString {
-        if let Control::Toggle = self.control {
-            return if as_bool(value) { "On" } else { "Off" }.into();
-        }
         match self
             .choices(cx)
             .into_iter()
-            .find(|choice| choice.value == *value)
+            .find(|choice| choice.holds(value))
         {
             Some(choice) => choice.label,
             None => match toml::Value::try_from(value) {
@@ -142,27 +184,22 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Sync> Setting<T> {
 
     fn choices(&self, cx: &App) -> Vec<Choice<T>> {
         match self.control {
-            Control::Toggle => Vec::new(),
+            Control::Switch(choices) => choices(cx).into(),
             Control::Segmented(choices) | Control::Select(choices) | Control::Stepper(choices) => {
                 choices(cx)
             }
         }
     }
 
-    /// Flips a toggle, or moves `step` choices over, around the ends when `wrap` is set.
+    /// Moves `step` choices over, around the ends when `wrap` is set.
     fn move_by(&self, step: isize, wrap: bool, cx: &mut App) {
         let value = self.get(cx);
-        if let Control::Toggle = self.control {
-            let flipped = toml::Value::Boolean(!as_bool(&value));
-            self.set(flipped.try_into().expect("a toggle holds a bool"), cx);
-            return;
-        }
         let choices = self.choices(cx);
         if choices.is_empty() {
             return;
         }
         let last = choices.len() as isize - 1;
-        let index = match choices.iter().position(|choice| choice.value == value) {
+        let index = match choices.iter().position(|choice| choice.holds(&value)) {
             Some(index) if wrap => (index as isize + step).rem_euclid(last + 1),
             Some(index) => (index as isize + step).clamp(0, last),
             None => 0,
@@ -188,8 +225,8 @@ pub trait AnySetting: Sync {
     fn changed_from(&self, cx: &App) -> Option<SharedString>;
     /// Goes back to the default, which removes the key from the file.
     fn reset(&self, cx: &mut App);
-    /// Whether `value` can be this setting's value, and why not.
-    fn check(&self, value: &toml::Value) -> Result<(), String>;
+    /// Whether the file can give this setting `value`, and why not.
+    fn check(&self, value: &toml::Value, cx: &App) -> Result<(), String>;
 }
 
 impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Sync> AnySetting for Setting<T> {
@@ -208,9 +245,9 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Sync> AnySetting for 
     fn state(&self, cx: &App) -> ControlState {
         let value = self.get(cx);
         let choices = self.choices(cx);
-        let selected = choices.iter().position(|choice| choice.value == value);
+        let selected = choices.iter().position(|choice| choice.holds(&value));
         match self.control {
-            Control::Toggle => ControlState::Toggle(as_bool(&value)),
+            Control::Switch(_) => ControlState::Toggle(selected == Some(1)),
             Control::Segmented(_) => ControlState::Segmented {
                 labels: choices.into_iter().map(|choice| choice.label).collect(),
                 selected,
@@ -251,20 +288,26 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Sync> AnySetting for 
         self.set(self.default.clone(), cx);
     }
 
-    fn check(&self, value: &toml::Value) -> Result<(), String> {
-        value
+    fn check(&self, value: &toml::Value, cx: &App) -> Result<(), String> {
+        let value: T = value
             .clone()
-            .try_into::<T>()
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+            .try_into()
+            .map_err(|error: toml::de::Error| error.message().to_string())?;
+        if matches!(self.control, Control::Select(_)) {
+            return Ok(());
+        }
+        let choices = self.choices(cx);
+        if choices.iter().any(|choice| choice.holds(&value)) {
+            return Ok(());
+        }
+        let accepted: Vec<String> = choices
+            .iter()
+            .flat_map(Choice::values)
+            .filter_map(|value| toml::Value::try_from(value).ok())
+            .map(|value| value.to_string())
+            .collect();
+        Err(format!("expected one of {}", accepted.join(", ")))
     }
-}
-
-fn as_bool(value: &impl Serialize) -> bool {
-    toml::Value::try_from(value)
-        .ok()
-        .and_then(|value| value.as_bool())
-        .expect("a toggle holds a bool")
 }
 
 #[cfg(test)]
@@ -284,6 +327,124 @@ mod tests {
                 .collect()
         }),
     };
+
+    static FONT: Setting<Option<SharedString>> = Setting {
+        key: "font",
+        name: "Font",
+        description: "",
+        default: None,
+        control: Control::Select(|_| vec![Choice::new(None, "From the theme")]),
+    };
+
+    #[gpui::test]
+    fn a_select_shows_a_value_outside_its_choices_as_written(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            FONT.set(Some("Fira Code".into()), cx);
+            assert_eq!(
+                FONT.state(cx),
+                ControlState::Select {
+                    label: "Fira Code".into(),
+                    options: vec!["From the theme".into()],
+                    selected: None,
+                }
+            );
+        });
+    }
+
+    static SHOWN: Setting<bool> = Setting {
+        key: "shown",
+        name: "Shown",
+        description: "",
+        default: true,
+        control: Control::Toggle,
+    };
+
+    #[gpui::test]
+    fn a_toggle_flips_between_its_two_choices(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            assert_eq!(SHOWN.state(cx), ControlState::Toggle(true));
+            SHOWN.step(1, cx);
+            assert_eq!(SHOWN.state(cx), ControlState::Toggle(false));
+            assert_eq!(SHOWN.changed_from(cx), Some("On".into()));
+            SHOWN.step(-1, cx);
+            assert!(SHOWN.get(cx));
+        });
+    }
+
+    static LEVEL: Setting<u32> = Setting {
+        key: "level",
+        name: "Level",
+        description: "",
+        default: 5,
+        control: Control::Switch(|_| [Choice::new(1, "Low"), Choice::new(2, "High")]),
+    };
+
+    #[gpui::test]
+    fn a_switch_over_numbers_starts_from_off_when_its_default_isnt_listed(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            assert_eq!(LEVEL.state(cx), ControlState::Toggle(false));
+            LEVEL.step(1, cx);
+            assert_eq!(LEVEL.get(cx), 1);
+            LEVEL.step(1, cx);
+            assert_eq!(LEVEL.state(cx), ControlState::Toggle(true));
+        });
+    }
+
+    static LIMIT: Setting<Option<u32>> = Setting {
+        key: "limit",
+        name: "Limit",
+        description: "",
+        default: Some(3),
+        control: Control::Stepper(|_| vec![Choice::new(None, "None"), Choice::new(Some(3), "3")]),
+    };
+
+    #[gpui::test]
+    fn setting_none_over_a_default_goes_back_to_the_default(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            LIMIT.set(Some(9), cx);
+            LIMIT.set(None, cx);
+            assert_eq!(LIMIT.get(cx), Some(3));
+            assert_eq!(cx.global::<Settings>().source(), "");
+        });
+    }
+
+    static SIZE: Setting<Option<u32>> = Setting {
+        key: "size",
+        name: "Size",
+        description: "",
+        default: None,
+        control: Control::Stepper(|_| {
+            vec![
+                Choice::new(Some(1), "1 px"),
+                Choice::new(None, "2 px").also(Some(2)),
+                Choice::new(Some(3), "3 px"),
+            ]
+        }),
+    };
+
+    #[gpui::test]
+    fn a_value_a_choice_also_stands_for_shows_as_that_choice(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            SIZE.set(Some(2), cx);
+            assert_eq!(
+                SIZE.state(cx),
+                ControlState::Stepper {
+                    label: "2 px".into(),
+                    can_decrease: true,
+                    can_increase: true,
+                }
+            );
+            SIZE.step(1, cx);
+            assert_eq!(SIZE.get(cx), Some(3));
+            SIZE.step(-1, cx);
+            assert_eq!(SIZE.get(cx), None);
+            assert!(SIZE.check(&2.into(), cx).is_ok());
+            assert_eq!(
+                SIZE.check(&4.into(), cx),
+                Err("expected one of 1, 2, 3".to_string())
+            );
+        });
+    }
 
     #[gpui::test]
     fn a_stepper_stops_at_either_end(cx: &mut TestAppContext) {

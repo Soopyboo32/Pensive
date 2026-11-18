@@ -6,8 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use components::{Breadcrumb, Icon, IconName, Kbd, ListRow, TitleBar};
 use gpui::{
     AnyElement, AnyView, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Global,
-    ObjectFit, RenderImage, SharedString, Subscription, UpdateGlobal, Window, actions, div, img,
-    prelude::*,
+    ObjectFit, RenderImage, SharedString, Subscription, Window, actions, div, img, prelude::*,
 };
 use mock::{Mock, grid};
 use model::Notices;
@@ -502,7 +501,7 @@ impl SavedApp {
 
     fn restore(&self, cx: &mut App) {
         if cx.default_global::<Settings>().source() != self.settings {
-            Settings::update_global(cx, |settings, _| settings.load(&self.settings));
+            Settings::load(&self.settings, cx);
         }
         cx.set_global(self.theme.clone());
         cx.set_global(self.density.clone());
