@@ -25,8 +25,8 @@ It publishes cheap `text::TextSnapshot` values from its existing Rope, with sepa
 identities and revisions for the base and editable sides. The base also retains its existing
 flat string for borrowed removed-line display; its immutable Rope is built when base contents
 arrive, never on a snapshot request. Background diff publication checks both source stamps
-and its request generation. [Shared text](decisions/shared-text.md) defines the byte contract,
-transaction ordering and invalidation rules.
+and its request generation. Edits, grouped undo and redo, and disk reloads each publish
+one revision with ordered changes in UTF-8 byte coordinates.
 
 ## Rules
 
