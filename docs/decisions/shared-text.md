@@ -77,10 +77,10 @@ independent of cancellation timing. There are no placeholder language jobs or pr
 
 ## Alternatives and scope
 
-Keeping snapshots in `model` would couple future pure parsers to GPUI. Importing SoopyCode's
-mutable document or scalar range API would introduce another editing owner and competing
-coordinate contracts. Instead its snapshot identity, conversion and versioned-job ideas inform
-native byte-based values; attribution and its MIT notice are in `crates/text/NOTICE`.
+Keeping snapshots in `model` would couple future pure parsers to GPUI. A separate mutable
+text model would introduce another editing owner and competing coordinate contracts. Shared
+immutable values keep snapshot identity, coordinate conversion and versioned work independent
+of GPUI while preserving Pensive's native UTF-8 byte contract.
 
 Syntax, grammars, language registration, LSP, semantic sessions, historical project sources
 and the Java project engine remain later milestones.
