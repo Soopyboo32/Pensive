@@ -43,6 +43,12 @@ publishes tokens for the current input and notifies observers to repaint. Provid
 the full snapshot and reuse completed parse state when the source, provider selection and
 edit history match.
 
+The editor composes each visible source row into a `DisplayLine`. Each styled part
+either covers source bytes or displays text at a single source offset. Both diff sides
+use this representation. Painting, hit testing, selection and input-method geometry use
+the same byte mapping. A click inside anchored text resolves to its anchor, and the
+caret at that offset sits before the text.
+
 ## Rules
 
 - Views can trigger I/O but never perform it. Git, the filesystem, the clock, the network, environment variables and randomness go through a model. That way any view can render from mock data. Clippy enforces this: the root `clippy.toml` disallows the standard library's file, environment, process and clock calls, and `git`, `config` and `pensive` each have their own `clippy.toml` that drops those rules.

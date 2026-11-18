@@ -6,7 +6,7 @@ use gpui::{App, Hsla, WeakEntity};
 use model::{Document, DocumentSide, TokenRole, TokenSpan};
 use theme::ThemeColors;
 
-use super::{Editor, Row, line::local_range};
+use super::{Editor, Row, display_line::local_range};
 
 // Keep nearby rows colored while scrolling a few lines at a time.
 const PREFETCH_ROWS: usize = 8;

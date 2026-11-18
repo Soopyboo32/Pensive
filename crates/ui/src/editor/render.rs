@@ -12,8 +12,9 @@ use theme::{ActiveTheme, Typeset, dp};
 
 use super::{
     Editor,
+    display_line::{DisplayLine, local_range, runs},
     keys::CONTEXT,
-    line::{LineElement, LineInteraction, local_range},
+    line::{LineElement, LineInteraction},
     rows::{Mode, Row, STEP},
     syntax::foregrounds,
 };
@@ -34,6 +35,18 @@ impl Editor {
         let colors = &cx.theme().colors;
         let marks = self.mode != Mode::Plain;
         let word = |kind: LineKind| kind.hue(colors).map(|hue| hue.opacity(0.28));
+        let display_line =
+            |side, start, text: String, highlights: &[_], marked: Option<&Range<usize>>| {
+                let foregrounds = foregrounds(document.syntax_spans(side), start, &text, colors);
+                let styles = runs(
+                    &text,
+                    window.text_style().to_run(text.len()),
+                    &foregrounds,
+                    highlights,
+                    marked,
+                );
+                DisplayLine::compose(start, text, styles, &[]).into()
+            };
         match row.clone() {
             Row::Line { line, added, pair } => {
                 let kind = if added && marks {
@@ -43,7 +56,7 @@ impl Editor {
                 };
                 let (start, text) = movement::line(document.text(), line);
                 let end = start + text.len();
-                let highlights = match (pair, word(kind)) {
+                let highlights: Vec<_> = match (pair, word(kind)) {
                     (Some(pair), Some(color)) if marks => {
                         changed_words(document.base_line(pair), &text)
                             .1
@@ -58,42 +71,39 @@ impl Editor {
                     && selected.end >= start
                     && !selected.is_empty())
                 .then(|| {
-                    let from = selected.start.max(start) - start;
-                    let to = selected.end.min(end) - start;
+                    let from = selected.start.max(start);
+                    let to = selected.end.min(end);
                     (from..to, selected.end > end)
                 });
                 let cursor = self.selection.cursor();
                 let focused = self.focus_handle.is_focused(window);
+                let marked = self
+                    .selection
+                    .marked
+                    .as_ref()
+                    .and_then(|range| local_range(&text, start, range));
                 let element = LineElement {
-                    foregrounds: foregrounds(
-                        document.syntax_spans(DocumentSide::New),
+                    display: display_line(
+                        DocumentSide::New,
                         start,
-                        &text,
-                        colors,
+                        text,
+                        &highlights,
+                        marked.as_ref(),
                     ),
                     interaction: Some(LineInteraction {
                         line,
-                        start,
                         selection,
-                        cursor: (focused && (start..=end).contains(&cursor))
-                            .then(|| cursor - start),
-                        marked: self
-                            .selection
-                            .marked
-                            .as_ref()
-                            .and_then(|marked| local_range(&text, start, marked)),
+                        cursor: (focused && (start..=end).contains(&cursor)).then_some(cursor),
                         autoscroll: self.autoscroll.then(|| this.clone()),
                         layouts: self.layouts.clone(),
                     }),
-                    text: text.into(),
-                    highlights,
                     scroll_x: self.scroll_x,
                 };
                 DiffRow::new(kind, Some(line + 1), element).into_any_element()
             }
             Row::Removed { line, pair } => {
                 let text = document.base_line(line);
-                let highlights = pair
+                let highlights: Vec<_> = pair
                     .zip(word(LineKind::Removed))
                     .filter(|(pair, _)| marks && *pair < document.text().len_lines())
                     .map(|(pair, color)| {
@@ -105,18 +115,15 @@ impl Editor {
                     })
                     .unwrap_or_default();
                 let element = LineElement {
-                    foregrounds: document
-                        .base_line_range(line)
-                        .map_or_else(Vec::new, |bytes| {
-                            foregrounds(
-                                document.syntax_spans(DocumentSide::Base),
-                                bytes.start,
-                                text,
-                                colors,
-                            )
-                        }),
-                    text: text.to_owned().into(),
-                    highlights,
+                    display: display_line(
+                        DocumentSide::Base,
+                        document
+                            .base_line_range(line)
+                            .map_or(0, |range| range.start),
+                        text.to_owned(),
+                        &highlights,
+                        None,
+                    ),
                     scroll_x: self.scroll_x,
                     interaction: None,
                 };
