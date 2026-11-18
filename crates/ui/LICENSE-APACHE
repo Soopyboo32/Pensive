@@ -5,8 +5,8 @@ at the tag pinned in the root Cargo.toml:
 - src/window_frame.rs, from crates/gpui/examples/window_shadow.rs
 
 GPUI is licensed under the Apache License, Version 2.0, which follows. The changes made to these
-files, and the rest of Pensive, are under the Mozilla Public License 2.0 in LICENSE at the root of
-the repository.
+files, and the rest of Pensive, are under the Functional Source License 1.1, ALv2 Future License,
+in LICENSE at the root of the repository.
 
 Copyright 2022 - 2025 Zed Industries, Inc.
 
