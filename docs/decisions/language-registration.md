@@ -1,8 +1,8 @@
 # Language registration and source context
 
 The pure `language` crate owns stable canonical language IDs, one recognition catalog,
-programmatic associations, installed-provider selection metadata and token roles. It depends
-only on `text`, builds on native and Wasm, and does no I/O. `model::Document` remains the only
+programmatic associations, installed-provider selection metadata and token roles. It builds
+on native and Wasm and does no I/O. `model::Document` remains the only
 mutable document owner.
 
 ## Recognition and overrides
@@ -45,9 +45,9 @@ whole entry, including old aliases and providers, atomically. Plain text always 
 
 ## Installed capabilities
 
-Recognition does not promise a parser. All bundled registrations have **no providers** today,
-so even recognized Rust/Java/TypeScript inputs return no syntax or semantic provider.
-`Registry::empty` supplies only the text fallback, also without a provider.
+Recognition and provider availability are independent. [Syntax providers](syntax-providers.md)
+lists the bundled capabilities by target. `Registry::empty` supplies only the text fallback,
+without a provider.
 
 Each language registration may carry `ProviderRegistration` metadata: provider ID, explicit
 `Syntax`/`Semantic` capabilities and priority. The host owns the actual implementation and
@@ -56,7 +56,6 @@ contract, not a plugin loader, ABI, activation lifecycle or protocol for future 
 Syntax and semantic providers are selected independently: highest priority wins, then the
 lexicographically smallest provider ID. Registration order does not affect selection. An
 empty capability list offers neither feature; removing providers leaves recognition intact.
-The later implementation milestones will add execution contracts where they are needed.
 
 A `Selection` includes an opaque configuration identity as well as the chosen language and
 providers. Registry clones retain this identity until changed; each successful mutation
@@ -89,9 +88,8 @@ empty text file. Commit documents retain their own and their parent's origins an
 The step 1 `snapshot`/`base_snapshot` APIs and source stamps remain text contracts. A path,
 presence, commit-context, association or provider change need not change the text revision.
 Consumers use `DocumentSnapshot::same_input`, which compares both the text stamp and full
-source/selection metadata, before reusing future language work. Original snapshots remain
-immutable across edits, refreshes and registry replacement. No language jobs or caches are
-implemented in this step.
+source/selection metadata, before publishing language work. Original snapshots remain
+immutable across edits, refreshes and registry replacement.
 
 Refresh accepts metadata and base changes while retaining dirty editable text. Clean documents
 follow deletion/recreation too, retaining text source identity and distinguishing an absent side
@@ -108,6 +106,5 @@ Separate host and parser recognition tables would create competing recognition r
 A single portable registration catalog with model-owned source context fits Pensive's
 existing backend/fixture boundary and keeps document ownership in `model::Document`.
 
-Syntax parsing, grammars, highlighting, semantic engines, LSP processes and historical project
-VFS are later milestones. These source contexts identify the two existing diff inputs; they
-do not provide a historical filesystem or project analysis session.
+These source contexts identify the two existing diff inputs. Semantic engines, LSP processes
+and historical project sources remain later milestones.

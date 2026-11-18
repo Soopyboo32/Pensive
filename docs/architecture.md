@@ -11,7 +11,7 @@ Pensive is a Cargo workspace. A crate can only use the crates it lists as depend
 | `components` | Stateless building blocks that render from props and the theme. | `theme` |
 | `model` | Application state, and the traits that I/O backends implement. | `text`, `language` |
 | `text` | Immutable Rope snapshots, source stamps, validated byte coordinates and ordered edit records. No I/O or mutable document owner. | |
-| `language` | Portable language catalog, association precedence, installed provider selection and byte-based token roles. No I/O or parser dependencies. | `text` |
+| `language` | Language catalog, provider selection and syntax tokens. Java syntax is portable, and desktop builds also include Tree-sitter grammars. | `text` |
 | `git` | The Git backend, which runs the `git` command line. | `model` |
 | `config` | The config folder backend, which reads, writes and watches the settings and theme files. | `model` |
 | `settings` | Declared settings, and the store that holds the settings file's text and the values in it. It does no I/O. | |
@@ -35,6 +35,11 @@ side's existing text snapshot with that context and a selection from the shared 
 registry. `Projects::set_languages` updates existing and future documents without changing
 their text stamps. [Language registration](decisions/language-registration.md) defines
 recognition precedence, installed capabilities and configuration invalidation.
+
+`Document::request_syntax` prepares tokens for a byte range on one side. It runs syntax work
+on GPUI's background executor and notifies observers when `Document::syntax_tokens` has a
+result for the current input. [Syntax providers](decisions/syntax-providers.md) describes the
+parse cache, edit reuse and target coverage.
 
 ## Rules
 
