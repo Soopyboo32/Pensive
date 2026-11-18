@@ -7,7 +7,7 @@ use gpui::{
     Animation, AnimationExt, AnyElement, App, ElementId, ScrollEvent, Task, Window, deferred, div,
     prelude::*, relative,
 };
-use theme::{ActiveTheme, Dp, dp};
+use theme::{ActiveTheme, Dp, IconSize, dp};
 
 use crate::{Callback, Icon, IconName, Tooltip, child_id};
 
@@ -122,7 +122,7 @@ impl RenderOnce for ScrollToChange {
                                 .flex()
                                 .items_center()
                                 .gap_1p5()
-                                .child(Icon::new(IconName::ChevronsUpDown).size(dp(12.)))
+                                .child(Icon::new(IconName::ChevronsUpDown).size(IconSize::Small))
                                 .child("Scroll to change"),
                         ))
                         .priority(1),

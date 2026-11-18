@@ -6,7 +6,7 @@ use std::time::Duration;
 use gpui::{
     Animation, AnimationExt, App, ElementId, Window, div, ease_in_out, prelude::*, relative,
 };
-use theme::{ActiveTheme, Dp, dp};
+use theme::{ActiveTheme, Dp, IconSize, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, callback};
 
@@ -88,7 +88,7 @@ impl RenderOnce for Activity {
             )
             .child(
                 Icon::new(IconName::CircleHelpFilled)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color(colors.text_faint),
             )
             .on_click_callback(self.on_click)

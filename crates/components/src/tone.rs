@@ -2,7 +2,7 @@
 //! the tone's hue.
 
 use gpui::Hsla;
-use theme::{ThemeColors, dp};
+use theme::{IconSize, ThemeColors};
 
 use crate::{Icon, IconName};
 
@@ -26,9 +26,9 @@ impl Tone {
         }
     }
 
-    pub(crate) fn icon(self, size: f32, colors: &ThemeColors) -> Option<Icon> {
+    pub(crate) fn icon(self, size: IconSize, colors: &ThemeColors) -> Option<Icon> {
         self.mark(colors)
-            .map(|(name, hue)| Icon::new(name).size(dp(size)).color(hue))
+            .map(|(name, hue)| Icon::new(name).size(size).color(hue))
     }
 
     /// The border, 45% of the way to the tone's hue.

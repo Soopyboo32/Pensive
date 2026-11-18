@@ -48,8 +48,8 @@ impl SettingsView {
 
 pub(crate) fn mocks() -> Vec<Mock> {
     vec![
-        Mock::new("settings", "appearance", |w, cx| window(untouched, w, cx)),
-        Mock::new("settings", "rail_hover", |w, cx| {
+        mock_window::mock("settings", "appearance", |w, cx| window(untouched, w, cx)),
+        mock_window::mock("settings", "rail_hover", |w, cx| {
             window(
                 |view, cx| {
                     view.hovered = Some(2);
@@ -59,7 +59,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("settings", "command_palette", |w, cx| {
+        mock_window::mock("settings", "command_palette", |w, cx| {
             window(
                 |view, cx| {
                     view.jump_to(
@@ -74,7 +74,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("settings", "last_page", |w, cx| {
+        mock_window::mock("settings", "last_page", |w, cx| {
             window(
                 |view, cx| {
                     view.jump_to(
@@ -89,7 +89,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("settings", "one_page", |w, cx| {
+        mock_window::mock("settings", "one_page", |w, cx| {
             window(
                 |view, cx| {
                     view.jump_to(
@@ -104,20 +104,20 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("settings", "search", |w, cx| {
+        mock_window::mock("settings", "search", |w, cx| {
             window(|view, cx| view.search_in(PALETTE, "show", cx), w, cx)
         }),
-        Mock::new("settings", "no_results", |w, cx| {
+        mock_window::mock("settings", "no_results", |w, cx| {
             window(|view, cx| view.search_in(PALETTE, "qwerty", cx), w, cx)
         }),
-        Mock::new("settings", "size_changed", |w, cx| {
+        mock_window::mock("settings", "size_changed", |w, cx| {
             let view = window(|view, cx| view.jump_to(SIZE, cx), w, cx);
             Settings::update_global(cx, |settings, _| {
                 settings.load("zoom = 110\ncode_size = 15\n")
             });
             view
         }),
-        Mock::new("settings", "dense", |w, cx| {
+        mock_window::mock("settings", "dense", |w, cx| {
             cx.set_global(DensityPreset::Dense.density());
             window(untouched, w, cx)
         }),

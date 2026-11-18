@@ -28,7 +28,7 @@ pub(crate) static THEME: Setting<SharedString> = Setting {
 pub(crate) static DENSITY: Setting<DensityPreset> = Setting {
     key: "density",
     name: "Density",
-    description: "Calm has larger text and 28 px rows",
+    description: "Calm has larger text and 30 px rows",
     default: DensityPreset::Calm,
     control: Control::Segmented(|_| {
         DensityPreset::VARIANTS
@@ -156,12 +156,12 @@ mod tests {
                 ControlState::Stepper { label, .. } => label,
                 state => panic!("code size shows {state:?}"),
             };
-            assert_eq!(label(cx), "13 px");
+            assert_eq!(label(cx), "14 px");
 
             CODE_SIZE.step(1, cx);
             apply(cx);
-            assert_eq!(CODE_SIZE.get(cx), Some(14));
-            assert_eq!(cx.density().code.line_height, Dp(21.));
+            assert_eq!(CODE_SIZE.get(cx), Some(15));
+            assert_eq!(cx.density().code.line_height, Dp(23.));
 
             CODE_SIZE.step(-1, cx);
             assert_eq!(CODE_SIZE.get(cx), None);

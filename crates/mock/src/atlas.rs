@@ -1,4 +1,5 @@
-//! One subject's mocks as a grid of numbered cards, drawn into a single image.
+//! One subject's mocks as a grid of numbered cards, drawn into as few images as the GPU can read
+//! back.
 #![expect(
     clippy::disallowed_methods,
     reason = "the atlas is an image laid out in pixels"
@@ -6,16 +7,17 @@
 
 use std::sync::Arc;
 
-#[cfg(not(target_family = "wasm"))]
-use gpui::{AppContext, Result};
 use gpui::{
-    Context, IntoElement, ParentElement, Pixels, Render, RenderImage, SharedString, Size, Styled,
-    Window, div, img, px, size,
+    AppContext, Context, IntoElement, ParentElement, Pixels, Render, RenderImage, Result,
+    SharedString, Size, Styled, Window, div, img, px, size,
 };
 use image::{Frame, RgbaImage};
 use theme::{ActiveTheme, Dp, Typeset};
 
-use crate::Mock;
+use crate::{
+    Mock,
+    grid::{columns, largest, summary},
+};
 
 const PADDING: Pixels = px(32.);
 const GAP: Pixels = px(32.);
@@ -24,10 +26,27 @@ const TITLE_HEIGHT: Pixels = px(48.);
 const HEADER_HEIGHT: Pixels = px(40.);
 const BORDER: Pixels = px(1.);
 
+/// The most a headless render can read back from the GPU: wgpu's default buffer limit.
+const MAX_IMAGE_BYTES: u64 = 256 << 20;
+/// GPUI's headless windows draw at two pixels per point.
+const SCALE: f32 = 2.;
+
 /// Fills rows left to right in the order mocks are added, with about as many columns as rows.
+/// A subject too large for one image splits into pages.
 pub struct Atlas {
     subject: &'static str,
     cards: Vec<Card>,
+}
+
+/// One image of an atlas: a run of its cards, numbered from `first`.
+struct Page {
+    subject: &'static str,
+    cards: Vec<Card>,
+    first: usize,
+    number: usize,
+    pages: usize,
+    total: usize,
+    largest: Size<Pixels>,
 }
 
 #[derive(Clone)]
@@ -57,74 +76,86 @@ impl Atlas {
         });
     }
 
-    fn columns(&self) -> usize {
-        columns(self.cards.len())
+    /// Renders each page like `Mock::render`, at twice its size so each mock keeps the pixels of
+    /// its PNG.
+    pub fn render(self) -> Result<Option<Vec<RgbaImage>>> {
+        self.pages()
+            .into_iter()
+            .map(|page| {
+                let window_size = grid_size(page.cards.len(), page.largest);
+                crate::headless::render_headless(window_size, |_, cx| cx.new(|_| page))
+            })
+            .collect::<Result<Option<Vec<_>>>>()
     }
 
-    fn largest_mock(&self) -> Size<Pixels> {
-        largest(self.cards.iter().map(|card| card.size))
-    }
-
-    fn card_size(&self) -> Size<Pixels> {
-        let largest = self.largest_mock();
-        size(
-            largest.width + BORDER * 2.,
-            HEADER_HEIGHT + largest.height + BORDER * 2.,
-        )
-    }
-
-    fn summary(&self) -> SharedString {
-        summary(self.subject, self.cards.len(), self.largest_mock())
+    /// Splits the cards into as few pages as fit in one image each. Every page but the last holds
+    /// the same number of cards.
+    fn pages(self) -> Vec<Page> {
+        let total = self.cards.len();
+        let largest = largest(self.cards.iter().map(|card| card.size));
+        let fitting = (1..=total)
+            .rev()
+            .find(|&count| image_bytes(grid_size(count, largest)) <= MAX_IMAGE_BYTES)
+            .unwrap_or(1);
+        let pages = total.div_ceil(fitting);
+        let per_page = total.div_ceil(pages);
+        self.cards
+            .chunks(per_page)
+            .enumerate()
+            .map(|(index, cards)| Page {
+                subject: self.subject,
+                cards: cards.to_vec(),
+                first: index * per_page,
+                number: index + 1,
+                pages,
+                total,
+                largest,
+            })
+            .collect()
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
-impl Atlas {
-    /// Renders like `Mock::render`, at twice its size so each mock keeps the pixels of its PNG.
-    pub fn render(self) -> Result<Option<RgbaImage>> {
-        let window_size = self.window_size();
-        crate::headless::render_headless(window_size, |_, cx| cx.new(|_| self))
-    }
-
-    fn window_size(&self) -> Size<Pixels> {
-        let columns = self.columns();
-        let rows = self.cards.len().div_ceil(columns);
-        let card_size = self.card_size();
-        size(
-            PADDING * 2. + card_size.width * columns as f32 + GAP * (columns - 1) as f32,
-            PADDING * 2. + TITLE_HEIGHT + (GAP + card_size.height) * rows as f32,
-        )
-    }
-}
-
-/// About as many columns as rows, for a grid of `count` cards.
-pub fn columns(count: usize) -> usize {
-    (count as f64).sqrt().ceil().max(1.) as usize
-}
-
-/// The size every card leaves room for.
-pub fn largest(sizes: impl IntoIterator<Item = Size<Pixels>>) -> Size<Pixels> {
-    sizes
-        .into_iter()
-        .fold(Size::default(), |largest, size| largest.max(&size))
-}
-
-/// The line under a subject's name: how many mocks, the largest one's size and the command that
-/// renders them.
-pub fn summary(subject: &str, count: usize, largest: Size<Pixels>) -> SharedString {
-    format!(
-        "{count} mocks · {} × {} · cargo mocks {subject}/",
-        largest.width.as_f32(),
-        largest.height.as_f32(),
+/// The window an atlas of `count` cards needs, each with room for a `largest` mock.
+fn grid_size(count: usize, largest: Size<Pixels>) -> Size<Pixels> {
+    let columns = columns(count);
+    let rows = count.div_ceil(columns);
+    let card = card_size(largest);
+    size(
+        PADDING * 2. + card.width * columns as f32 + GAP * (columns - 1) as f32,
+        PADDING * 2. + TITLE_HEIGHT + (GAP + card.height) * rows as f32,
     )
-    .into()
 }
 
-impl Render for Atlas {
+fn card_size(largest: Size<Pixels>) -> Size<Pixels> {
+    size(
+        largest.width + BORDER * 2.,
+        HEADER_HEIGHT + largest.height + BORDER * 2.,
+    )
+}
+
+/// The bytes a window of `size` reads back as, with each row padded to wgpu's copy alignment.
+fn image_bytes(size: Size<Pixels>) -> u64 {
+    let width = (size.width.as_f32() * SCALE).ceil() as u64;
+    let height = (size.height.as_f32() * SCALE).ceil() as u64;
+    (width * 4).next_multiple_of(256) * height
+}
+
+impl Page {
+    fn summary(&self) -> SharedString {
+        let summary = summary(self.subject, self.total, self.largest);
+        match self.pages {
+            1 => summary,
+            pages => format!("{summary} · page {} of {pages}", self.number).into(),
+        }
+    }
+}
+
+impl Render for Page {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = &cx.theme().colors;
         let density = cx.density();
-        let card_size = self.card_size();
+        let card_size = card_size(self.largest);
+        let first = self.first;
 
         let render_card = |(index, card): (usize, &Card)| {
             div()
@@ -150,7 +181,7 @@ impl Render for Atlas {
                             div()
                                 .typeset(density.small)
                                 .text_color(colors.text_faint)
-                                .child(format!("{:02}", index + 1)),
+                                .child(format!("{:02}", first + index + 1)),
                         )
                         .child(
                             div()
@@ -196,7 +227,7 @@ impl Render for Atlas {
             .child(
                 div()
                     .grid()
-                    .grid_cols(self.columns() as u16)
+                    .grid_cols(columns(self.cards.len()) as u16)
                     .gap(GAP)
                     .children(self.cards.iter().enumerate().map(render_card)),
             )

@@ -4,7 +4,7 @@
 use gpui::{
     AnyElement, App, Div, ElementId, SharedString, Stateful, anchored, deferred, div, prelude::*,
 };
-use theme::{ActiveTheme, Dp, Shadow, Typeset, dp};
+use theme::{ActiveTheme, Dp, IconSize, Shadow, Typeset, dp};
 
 use crate::{Icon, IconName};
 
@@ -12,7 +12,7 @@ use crate::{Icon, IconName};
 pub(crate) const MIN_WIDTH: Dp = dp(160.);
 /// Past this, an option's trailing text fades out.
 const MAX_WIDTH: Dp = dp(320.);
-const CHECK: Dp = dp(14.);
+const CHECK: IconSize = IconSize::Medium;
 
 /// The menu under its control, which must be `relative`. `on_dismiss` runs on a click outside.
 pub(crate) fn menu(
@@ -83,7 +83,10 @@ pub(crate) fn menu_row(
                 .size(CHECK)
                 .color(colors.text_strong)
                 .into_any_element(),
-            Leading::Blank => div().flex_none().size(CHECK).into_any_element(),
+            Leading::Blank => div()
+                .flex_none()
+                .size(density.icon(CHECK))
+                .into_any_element(),
             Leading::Icon(icon) => Icon::new(icon)
                 .size(CHECK)
                 .color(colors.text_faint)

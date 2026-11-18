@@ -7,13 +7,12 @@ use gpui::{
     Animation, AnimationExt, AnyElement, App, ElementId, SharedString, Window, deferred, div,
     ease_out_quint, prelude::*,
 };
-use theme::{ActiveTheme, Dp, dp};
+use theme::{ActiveTheme, Dp, IconSize, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, Tooltip, callback};
 
 /// How long the fill and the bar take to reach a new category.
 const SLIDE: Duration = Duration::from_millis(150);
-const ICON: Dp = dp(18.);
 /// Between buttons, and between the bar and the button it marks.
 const GAP: Dp = dp(4.);
 
@@ -121,7 +120,7 @@ impl RenderOnce for RailButton {
             .when(self.hovered && !self.selected && !self.filled, |button| {
                 button.bg(colors.surface_raised)
             })
-            .child(Icon::new(self.icon).size(ICON).color(color))
+            .child(Icon::new(self.icon).size(IconSize::XLarge).color(color))
             .children(
                 self.notice
                     .or_else(|| {

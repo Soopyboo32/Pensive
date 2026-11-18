@@ -1,7 +1,7 @@
 //! A square button that shows only an icon.
 
 use gpui::{App, ElementId, Hsla, Window, div, prelude::*};
-use theme::{ActiveTheme, Dp, ThemeColors, dp};
+use theme::{ActiveTheme, Dp, IconSize, ThemeColors, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, callback};
 
@@ -59,7 +59,7 @@ impl RenderOnce for IconButton {
             .hover(move |button| button.bg(hover))
             .child(
                 Icon::new(self.icon)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color((self.color)(colors)),
             )
             .on_click_callback(self.on_click)
