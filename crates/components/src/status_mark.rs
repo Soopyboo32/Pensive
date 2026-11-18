@@ -1,13 +1,13 @@
 //! A tree row's Git status after its name: a dot on a folder with changes inside, or a letter
 //! such as M.
 
-use gpui::{App, Hsla, SharedString, Window, div, prelude::*};
-use theme::{ActiveTheme, ThemeColors, Typeset, dp};
+use gpui::{App, SharedString, Window, div, prelude::*};
+use theme::{ActiveTheme, ColorRole, Typeset, dp};
 
 #[derive(IntoElement, Clone, Copy)]
 pub enum StatusMark {
-    Dot(fn(&ThemeColors) -> Hsla),
-    Letter(char, fn(&ThemeColors) -> Hsla),
+    Dot(ColorRole),
+    Letter(char, ColorRole),
 }
 
 impl RenderOnce for StatusMark {
