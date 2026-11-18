@@ -1,5 +1,6 @@
-//! Catalog adapted from SoopyCode; extension aliases originated in Arborium 2.18.2.
-//! See NOTICE. These entries recognize names only; none install a provider.
+//! Bundled filename and extension catalog. These entries recognize names only;
+//! none install a provider.
+//! Third-party attribution is in ../THIRD_PARTY_NOTICES.
 
 use crate::LanguageRegistration;
 

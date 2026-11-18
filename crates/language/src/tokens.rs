@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use text::{InvalidOffset, TextSnapshot};
 
-/// Theme-independent roles shared by syntax and semantic providers. Adapted from
-/// SoopyCode's TokenKind; source coordinates follow Pensive's byte contract.
+/// Theme-independent roles shared by syntax and semantic providers.
+/// Source coordinates follow Pensive's UTF-8 byte contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenRole {
     Keyword,

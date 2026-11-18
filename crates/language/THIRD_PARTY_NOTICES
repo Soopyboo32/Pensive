@@ -1,13 +1,13 @@
-Filename/extension recognition adapted from SoopyCode crates/analysis/src/syntax/file_types.rs
-and crates/workbench/src/file_types.rs; registration/provider selection design from
-crates/workbench/src/languages.rs and crates/analysis/src/plugins/registry.rs; token
-roles from crates/editor-model/src/render.rs. The extension aliases in SoopyCode
-were drawn from Arborium 2.18.2 (MIT/Apache-2.0). No grammar or runtime code is included.
-Pensive uses its own UTF-8 byte contracts and native model lifecycle.
+Arborium 2.18.2 filename and extension aliases
+https://github.com/bearcove/arborium
+
+The bundled catalog includes filename and extension aliases derived from Arborium.
+No Arborium grammar, parser or runtime code is included.
+The aliases are retained under Arborium's MIT license, reproduced below.
 
 MIT License
 
-Copyright (c) 2026 Soopy Code contributors
+Copyright (c) 2024 Amos Wenger <amos@bearcove.eu>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

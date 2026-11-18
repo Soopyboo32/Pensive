@@ -3,15 +3,13 @@
 The pure `language` crate owns stable canonical language IDs, one recognition catalog,
 programmatic associations, installed-provider selection metadata and token roles. It depends
 only on `text`, builds on native and Wasm, and does no I/O. `model::Document` remains the only
-mutable document owner. There is no SoopyCode path dependency or second editor API.
+mutable document owner.
 
 ## Recognition and overrides
 
 `Registry::default` builds the bundled catalog with `LanguageRegistration`, the same API used
-to add a language or replace one later. Filename and extension aliases are adapted from
-SoopyCode's portable table (originally drawn from Arborium), along with its token categories
-and the useful registration/provider-selection ideas. The source attribution and MIT notice
-are in `crates/language/NOTICE`. No grammar/runtime code is imported.
+to add a language or replace one later. The catalog recognizes common exact filenames and
+extension aliases independently of installed providers.
 
 Precedence, from highest to lowest:
 
@@ -31,7 +29,7 @@ matching rule. Unknown target languages and invalid keys fail without mutating t
 Path associations unify `/` and `\` but are case-sensitive, independent of the host OS.
 They use the supplied path exactly: no canonicalization, dot-segment resolution or filesystem
 access. Document paths are repository-relative. Exact filenames and final extensions use
-ASCII case-insensitive comparison on every platform, matching the ported table's policy.
+ASCII case-insensitive comparison on every platform.
 Non-ASCII characters are retained without Unicode case folding. Extensions may be supplied
 with one leading dot; compound suffixes are not supported. `.rs` has no extension and falls
 back to text, while `.config.toml` selects TOML. Known dotfiles such as `.bashrc`, `.zshrc`,
@@ -106,10 +104,9 @@ There is no settings UI or persisted association format yet.
 
 ## Alternatives and limits
 
-Keeping a workbench override table beside an analysis filename table would create competing
-recognition routes. Importing SoopyCode's plugin/workbench ownership would introduce another
-mutable text owner and premature execution machinery. A single portable registration catalog
-with model-owned source context fits Pensive's existing backend/fixture boundary instead.
+Separate host and parser recognition tables would create competing recognition routes.
+A single portable registration catalog with model-owned source context fits Pensive's
+existing backend/fixture boundary and keeps document ownership in `model::Document`.
 
 Syntax parsing, grammars, highlighting, semantic engines, LSP processes and historical project
 VFS are later milestones. These source contexts identify the two existing diff inputs; they

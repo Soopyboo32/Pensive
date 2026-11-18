@@ -1,6 +1,5 @@
 //! One portable catalog for language recognition and installed provider selection.
 //! No I/O, GPUI, mutable document, parser or semantic engine lives here.
-//! Recognition and token roles are adapted from SoopyCode; see NOTICE.
 
 mod catalog;
 #[cfg(test)]
