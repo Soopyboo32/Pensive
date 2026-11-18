@@ -2,7 +2,7 @@
 
 use gpui::{App, Hsla, IntoElement, RenderOnce, SharedString, Styled, Window, svg};
 use strum::{IntoStaticStr, VariantArray};
-use theme::{ActiveTheme, Dp, IconSize, dp};
+use theme::{ActiveTheme, Dp, IconSize};
 
 /// A Lucide icon, named as Lucide names it, or a window control, which are drawn to match each
 /// other in size where Lucide's minus, square and x don't. Each one is a file in `assets/icons`.
@@ -126,6 +126,8 @@ impl RenderOnce for Icon {
 
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
+    use theme::dp;
+
     vec![
         mock::Mock::component("icon", "gallery", || {
             let named = |size: f32| {

@@ -3,7 +3,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{AnyElement, App, Pixels, Window, canvas, div, prelude::*};
-use theme::{ActiveTheme, ColorRole, IconSize, dp};
+use theme::{ActiveTheme, ColorRole, IconSize};
 
 use crate::{
     Icon, IconName,
@@ -111,6 +111,8 @@ impl RenderOnce for Breadcrumb {
 
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
+    use theme::dp;
+
     vec![
         mock::Mock::component("breadcrumb", "gallery", || {
             crate::Gallery::new("Breadcrumb")

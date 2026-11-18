@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, ElementId, SharedString, Window, deferred, div, prelude::*};
-use theme::{ActiveTheme, ColorRole, Density, Dp, HAIRLINE, IconSize, Typeset, dp};
+use theme::{ActiveTheme, ColorRole, Density, Dp, HAIRLINE, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, callback};
 
@@ -297,6 +297,8 @@ impl RenderOnce for ListRow {
 
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
+    use theme::IconSize;
+
     use crate::{DiffStat, RingFill, StatusMark, StatusRing, Tooltip, gallery::Panel};
 
     fn tree() -> Vec<ListRow> {
