@@ -54,8 +54,8 @@ pub(crate) static ZOOM: Setting<u32> = Setting {
     }),
 };
 
-/// Code sizes in pixels at 100% zoom. Unset follows Density, so the default is listed as unset
-/// at Density's size.
+/// Code sizes in pixels at 100% zoom. Unset follows Density, so it's the choice at Density's size,
+/// and a file can still name that size.
 pub(crate) static CODE_SIZE: Setting<Option<u32>> = Setting {
     key: "code_size",
     name: "Code size",
@@ -64,7 +64,14 @@ pub(crate) static CODE_SIZE: Setting<Option<u32>> = Setting {
     control: Control::Stepper(|cx| {
         let from_density = DENSITY.get(cx).density().code.size.0 as u32;
         (10..=24)
-            .map(|size| Choice::new((size != from_density).then_some(size), format!("{size} px")))
+            .map(|size| {
+                let label = format!("{size} px");
+                if size == from_density {
+                    Choice::new(None, label).also(Some(size))
+                } else {
+                    Choice::new(Some(size), label)
+                }
+            })
             .collect()
     }),
 };
@@ -167,6 +174,49 @@ mod tests {
             assert_eq!(CODE_SIZE.get(cx), None);
             DENSITY.set(DensityPreset::Dense, cx);
             assert_eq!(label(cx), "12 px");
+        });
+    }
+
+    #[gpui::test]
+    fn the_file_can_name_any_code_size_in_range(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            for density in ["calm", "dense"] {
+                for size in [10, 12, 14, 24] {
+                    let source = format!("density = \"{density}\"\ncode_size = {size}\n");
+                    assert!(Settings::load(&source, cx).is_empty(), "{source}");
+                    assert_eq!(CODE_SIZE.get(cx), Some(size));
+                }
+            }
+            assert!(Settings::load("code_size = 14\n", cx).is_empty());
+            assert_eq!(
+                CODE_SIZE.state(cx),
+                ControlState::Stepper {
+                    label: "14 px".into(),
+                    can_decrease: true,
+                    can_increase: true,
+                }
+            );
+            for size in [9, 25] {
+                let problems = Settings::load(&format!("code_size = {size}\n"), cx);
+                assert_eq!(problems.len(), 1, "{problems:?}");
+                assert!(
+                    problems[0].contains("expected one of 10, 11"),
+                    "{problems:?}"
+                );
+                assert_eq!(CODE_SIZE.get(cx), None);
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn themes_and_fonts_can_be_ones_the_lists_dont_have_yet(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            let source = "theme = \"nord\"\n[fonts]\ncode = \"Fira Code\"\n";
+            assert!(Settings::load(source, cx).is_empty());
+            assert_eq!(THEME.get(cx), SharedString::from("nord"));
+            assert_eq!(CODE_FONT.get(cx), Some("Fira Code".into()));
         });
     }
 }

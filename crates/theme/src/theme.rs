@@ -131,9 +131,9 @@ fn drop_invalid<T: DeserializeOwned>(
         match toml::Value::Table(entry).try_into::<T>() {
             Ok(_) => true,
             Err(error) => {
-                problems.push(format!(
-                    "`{prefix}{key}` is left out because its value is wrong: {}",
-                    error.message()
+                problems.push(settings::bad_value(
+                    &format!("{prefix}{key}"),
+                    error.message(),
                 ));
                 false
             }
@@ -272,7 +272,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(problems.len(), 2);
-        assert!(problems[0].starts_with("`colors.text` is left out"));
+        assert!(problems[0].starts_with("`colors.text` is ignored because"));
         assert_eq!(problems[1], "`colors.text_mute` isn't a theme key");
         assert!(theme_override.colors.text.is_none());
         assert!(theme_override.colors.border.is_some());
@@ -287,7 +287,7 @@ text = \"#111111\"",
         )
         .unwrap();
         assert_eq!(problems.len(), 1);
-        assert!(problems[0].starts_with("`extends` is left out"));
+        assert!(problems[0].starts_with("`extends` is ignored because"));
         assert!(theme_override.extends.is_none());
         assert!(theme_override.colors.text.is_some());
     }

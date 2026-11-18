@@ -1,6 +1,6 @@
 //! The settings view's mocks: a window on the sample project with Settings open.
 
-use gpui::{AnyView, App, Context, UpdateGlobal, Window};
+use gpui::{AnyView, App, Context, Window};
 use mock::Mock;
 use model::fixtures::PENSIVE;
 use settings::Settings;
@@ -143,9 +143,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
         }),
         mock_window::mock("settings", "size_changed", |w, cx| {
             let view = window(|view, cx| view.jump_to(SIZE, None, cx), w, cx);
-            Settings::update_global(cx, |settings, _| {
-                settings.load("zoom = 110\ncode_size = 15\n")
-            });
+            Settings::load("zoom = 110\ncode_size = 15\n", cx);
             view
         }),
         mock_window::mock("settings", "dense", |w, cx| {
