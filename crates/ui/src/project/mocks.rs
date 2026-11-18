@@ -1,9 +1,9 @@
 //! One mock per board on the app shell canvas: the pensive project's window in each state,
-//! built from the sample changes.
+//! built from the sample changes, then harbor's window partway through a merge.
 
 use gpui::{AnyView, App, AppContext, Context, Window};
 use mock::Mock;
-use model::fixtures::{self, PENSIVE};
+use model::fixtures::{self, HARBOR, PENSIVE};
 use theme::DensityPreset;
 
 use super::{Control, FileLayout, Panel, ProjectView};
@@ -115,6 +115,9 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 window,
                 cx,
             )
+        }),
+        mock_window::mock("project", "renamed_and_conflicted", |window, cx| {
+            mock_window::pensive(Some(HARBOR), window, cx).into()
         }),
         mock_window::mock("project", "some_staged_dense", |window, cx| {
             cx.set_global(DensityPreset::Dense.density());
