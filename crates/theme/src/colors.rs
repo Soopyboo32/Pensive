@@ -13,6 +13,10 @@ pub fn gray(step: usize) -> Hsla {
     rgb(GRAYS[step - 1]).into()
 }
 
+/// Picks one role out of the theme, such as `|colors| colors.diff_added`, for a component that
+/// reads it when it renders.
+pub type ColorRole = fn(&ThemeColors) -> Hsla;
+
 #[derive(Refineable, Clone, Debug)]
 #[refineable(Debug, serde::Deserialize)]
 pub struct ThemeColors {

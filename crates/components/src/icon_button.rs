@@ -1,7 +1,7 @@
 //! A square button that shows only an icon.
 
-use gpui::{App, ElementId, Hsla, Window, div, prelude::*};
-use theme::{ActiveTheme, Dp, IconSize, ThemeColors, dp};
+use gpui::{App, ElementId, Window, div, prelude::*};
+use theme::{ActiveTheme, ColorRole, Dp, IconSize, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, callback};
 
@@ -10,7 +10,7 @@ pub struct IconButton {
     id: ElementId,
     icon: IconName,
     size: Dp,
-    color: fn(&ThemeColors) -> Hsla,
+    color: ColorRole,
     on_click: Option<Callback<()>>,
 }
 
@@ -33,7 +33,7 @@ impl IconButton {
     }
 
     /// Picks the icon's color role.
-    pub fn color(mut self, color: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn color(mut self, color: ColorRole) -> Self {
         self.color = color;
         self
     }

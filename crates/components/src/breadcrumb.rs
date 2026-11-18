@@ -2,8 +2,8 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use gpui::{AnyElement, App, Hsla, Pixels, Window, canvas, div, prelude::*};
-use theme::{ActiveTheme, IconSize, ThemeColors, dp};
+use gpui::{AnyElement, App, Pixels, Window, canvas, div, prelude::*};
+use theme::{ActiveTheme, ColorRole, IconSize, dp};
 
 use crate::{
     Icon, IconName,
@@ -14,7 +14,7 @@ use crate::{
 pub struct Breadcrumb {
     crumbs: Vec<AnyElement>,
     chevron: IconSize,
-    fade_start: Option<fn(&ThemeColors) -> Hsla>,
+    fade_start: Option<ColorRole>,
 }
 
 impl Breadcrumb {
@@ -32,7 +32,7 @@ impl Breadcrumb {
 
     /// When the crumbs don't fit, the first ones run off the start and fade into `background`,
     /// so the last crumb always shows.
-    pub fn fade_start(mut self, background: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn fade_start(mut self, background: ColorRole) -> Self {
         self.fade_start = Some(background);
         self
     }

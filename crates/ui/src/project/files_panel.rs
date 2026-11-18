@@ -7,9 +7,9 @@ use std::{
 };
 
 use components::{Icon, IconButton, IconName, Kbd, ListRow, StatusMark};
-use gpui::{AnyElement, App, Context, Focusable, Hsla, Window, div, prelude::*};
+use gpui::{AnyElement, App, Context, Focusable, Window, div, prelude::*};
 use model::{FileKey, FileStatus, Source};
-use theme::{ActiveTheme, IconSize, ThemeColors, Typeset, dp};
+use theme::{ActiveTheme, ColorRole, IconSize, Typeset, dp};
 
 use super::{
     Control, ProjectView,
@@ -313,14 +313,14 @@ fn folder_status(statuses: &HashMap<PathBuf, FileStatus>, folder: &Path) -> Opti
 /// How a status shows in the tree.
 enum TreeColor {
     /// A file's name in the status color, or a dot after a folder's.
-    Name(fn(&ThemeColors) -> Hsla),
+    Name(ColorRole),
     /// A letter after the name, such as M.
-    Letter(char, fn(&ThemeColors) -> Hsla),
+    Letter(char, ColorRole),
 }
 
 /// How `status` shows in the tree, or nothing with Git status off.
 fn status_color(status: FileStatus, style: GitStatus) -> Option<TreeColor> {
-    let (letter, color): (char, fn(&ThemeColors) -> Hsla) = match status {
+    let (letter, color): (char, ColorRole) = match status {
         FileStatus::Added => ('A', |colors| colors.diff_added),
         FileStatus::Untracked => ('U', |colors| colors.diff_added),
         FileStatus::Modified => ('M', |colors| colors.diff_modified),
