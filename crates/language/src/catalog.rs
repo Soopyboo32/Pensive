@@ -1,6 +1,5 @@
 //! Bundled filename and extension catalog. These entries recognize names only;
 //! none install a provider.
-//! Third-party attribution is in ../THIRD_PARTY_NOTICES.
 
 use crate::LanguageRegistration;
 
