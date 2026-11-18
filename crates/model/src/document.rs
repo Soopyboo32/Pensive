@@ -2,6 +2,7 @@
 //! for an uncommitted file, editing with undo and saving it back to the worktree.
 
 mod syntax;
+pub use syntax::SyntaxViewport;
 
 use std::{
     ops::Range,
@@ -56,6 +57,7 @@ pub struct Document {
     /// document is reloaded or the file is overwritten.
     conflict: Option<Version>,
     diff: LineDiff,
+    diff_revision: usize,
     /// The diff running. Replacing it cancels it; stamps also guard publication.
     diffing: Option<Task<()>>,
     diff_generation: usize,
@@ -212,6 +214,7 @@ impl Document {
             refresh_generation: 0,
             conflict: None,
             diff: contents.diff,
+            diff_revision: 0,
             diffing: None,
             diff_generation: 0,
             syntax: syntax::DocumentSyntax::default(),
@@ -282,11 +285,20 @@ impl Document {
         &self.diff
     }
 
+    /// Changes when a new diff is published, even when the edit revision stays the same.
+    pub fn diff_revision(&self) -> usize {
+        self.diff_revision
+    }
+
+    /// The source bytes of a committed line, without its line ending.
+    pub fn base_line_range(&self, index: usize) -> Option<Range<usize>> {
+        self.base_lines.get(index).cloned()
+    }
+
     /// The `index`th line of the committed text, without its line ending.
     pub fn base_line(&self, index: usize) -> &str {
-        self.base_lines
-            .get(index)
-            .map_or("", |range| &self.base[range.clone()])
+        self.base_line_range(index)
+            .map_or("", |range| &self.base[range])
     }
 
     /// Whether it has edits that aren't on disk yet.
@@ -425,6 +437,7 @@ impl Document {
             return false;
         }
         self.diff = diff;
+        self.diff_revision = stamp.generation;
         true
     }
 
@@ -938,6 +951,47 @@ mod tests {
                 Some([].as_slice())
             );
         });
+    }
+
+    #[gpui::test]
+    fn syntax_keeps_coverage_for_two_live_viewports(cx: &mut TestAppContext) {
+        let text = "fn first() {}\nfn second() {}\nfn third() {}";
+        let (document, _) = sample(text, cx);
+        let first = SyntaxViewport::default();
+        let second = SyntaxViewport::default();
+        let side = DocumentSide::New;
+        let at = |line| {
+            let byte = text.match_indices("fn").nth(line).unwrap().0;
+            byte..byte + 2
+        };
+        document.update(cx, |document, cx| {
+            document
+                .request_viewport_syntax(&first, side, vec![at(0)], cx)
+                .unwrap();
+            document
+                .request_viewport_syntax(&second, side, vec![at(2)], cx)
+                .unwrap();
+        });
+        cx.run_until_parked();
+        let ranges = |document: &Document| {
+            document
+                .syntax_spans(side)
+                .iter()
+                .map(crate::TokenSpan::bytes)
+                .collect::<Vec<_>>()
+        };
+        document.read_with(cx, |document, _| {
+            assert_eq!(ranges(document), [at(0), at(2)])
+        });
+
+        drop(first);
+        document.update(cx, |document, cx| {
+            document
+                .request_viewport_syntax(&second, side, vec![at(1)], cx)
+                .unwrap();
+        });
+        cx.run_until_parked();
+        document.read_with(cx, |document, _| assert_eq!(ranges(document), [at(1)]));
     }
 
     #[gpui::test]
