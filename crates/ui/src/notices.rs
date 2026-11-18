@@ -288,7 +288,6 @@ impl Render for NoticeOverlay {
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
     use gpui::AnyView;
-    use mock::Mock;
     use model::{GitProblem, GitVersion, Platform, fixtures::PENSIVE};
 
     use crate::mock_window;
@@ -372,10 +371,10 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
     }
 
     vec![
-        Mock::new("notices", "toasting", |w, cx| window(false, false, w, cx)),
-        Mock::new("notices", "folded", |w, cx| window(true, false, w, cx)),
-        Mock::new("notices", "list_open", |w, cx| window(true, true, w, cx)),
-        Mock::new("notices", "git_too_old", git_too_old),
+        mock_window::mock("notices", "toasting", |w, cx| window(false, false, w, cx)),
+        mock_window::mock("notices", "folded", |w, cx| window(true, false, w, cx)),
+        mock_window::mock("notices", "list_open", |w, cx| window(true, true, w, cx)),
+        mock_window::mock("notices", "git_too_old", git_too_old),
     ]
 }
 

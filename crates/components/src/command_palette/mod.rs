@@ -73,6 +73,7 @@ pub struct CommandPalette {
     selected: Option<usize>,
     scroll: Option<ScrollHandle>,
     overlay: bool,
+    fill: bool,
     opacity: f32,
     on_tab: Option<Callback<usize>>,
     on_activate: Option<Callback<usize>>,
@@ -99,6 +100,7 @@ impl CommandPalette {
             selected: None,
             scroll: None,
             overlay: false,
+            fill: false,
             opacity: 1.,
             on_tab: None,
             on_activate: None,
@@ -192,6 +194,12 @@ impl CommandPalette {
         self
     }
 
+    /// Grows to the height its parent column leaves, with the results taking the extra room.
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
+
     /// The background's opacity, from 0 to 1.
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity;
@@ -266,7 +274,7 @@ impl RenderOnce for CommandPalette {
                     .child(
                         div().mb_1().child(
                             Icon::new(IconName::SearchX)
-                                .size(dp(20.))
+                                .exact_size(dp(20.))
                                 .color(colors.text_faint),
                         ),
                     )
@@ -327,6 +335,7 @@ impl RenderOnce for CommandPalette {
             .occlude()
             .w(dp(576.))
             .min_h_0()
+            .when(self.fill, |palette| palette.flex_grow_1())
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -345,6 +354,7 @@ impl RenderOnce for CommandPalette {
                     .id("results")
                     .flex()
                     .flex_col()
+                    .flex_grow_1()
                     .min_h_0()
                     .p_1()
                     .overflow_y_scroll()

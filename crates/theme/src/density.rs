@@ -12,9 +12,9 @@ use crate::{Dp, dp};
 )]
 #[serde(rename_all = "lowercase")]
 pub enum DensityPreset {
-    /// Inter-sized text and 28 px rows. The default.
+    /// Larger text and 30 px rows. The default.
     Calm,
-    /// Smaller body and code text and 24 px rows, for more on screen.
+    /// Smaller text and 24 px rows, for more on screen.
     Dense,
 }
 
@@ -26,6 +26,18 @@ pub enum TextRole {
     Small,
     Label,
     Code,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
+pub enum IconSize {
+    /// Inside buttons and beside small text, such as chevrons.
+    Small,
+    /// Header and toolbar buttons.
+    Medium,
+    /// Rows and the default.
+    Large,
+    /// The rail.
+    XLarge,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +63,10 @@ pub struct Density {
     pub radius_sm: Dp,
     pub radius_md: Dp,
     pub radius_lg: Dp,
+    pub icon_sm: Dp,
+    pub icon_md: Dp,
+    pub icon_lg: Dp,
+    pub icon_xl: Dp,
 }
 
 impl Global for Density {}
@@ -62,31 +78,31 @@ impl DensityPreset {
             line_height: dp(line_height),
             weight,
         };
-        let heading = text(18., 24., FontWeight::SEMIBOLD);
-        let title = text(15., 20., FontWeight::SEMIBOLD);
-        let small = text(12., 16., FontWeight::NORMAL);
-        let label = text(11., 16., FontWeight::MEDIUM);
         match self {
             Self::Calm => Density {
-                heading,
-                title,
-                body: text(13., 20., FontWeight::NORMAL),
-                small,
-                label,
-                code: text(13., 20., FontWeight::NORMAL),
-                row_height: dp(28.),
-                row_padding: dp(12.),
-                row_gap: dp(10.),
+                heading: text(20., 26., FontWeight::SEMIBOLD),
+                title: text(16., 22., FontWeight::SEMIBOLD),
+                body: text(14., 22., FontWeight::NORMAL),
+                small: text(13., 18., FontWeight::NORMAL),
+                label: text(12., 16., FontWeight::MEDIUM),
+                code: text(14., 22., FontWeight::NORMAL),
+                row_height: dp(30.),
+                row_padding: dp(13.),
+                row_gap: dp(11.),
                 radius_sm: dp(4.),
                 radius_md: dp(6.),
                 radius_lg: dp(8.),
+                icon_sm: dp(13.),
+                icon_md: dp(15.),
+                icon_lg: dp(17.),
+                icon_xl: dp(19.),
             },
             Self::Dense => Density {
-                heading,
-                title,
+                heading: text(18., 24., FontWeight::SEMIBOLD),
+                title: text(15., 20., FontWeight::SEMIBOLD),
                 body: text(12., 16., FontWeight::NORMAL),
-                small,
-                label,
+                small: text(12., 16., FontWeight::NORMAL),
+                label: text(11., 16., FontWeight::MEDIUM),
                 code: text(12., 18., FontWeight::NORMAL),
                 row_height: dp(24.),
                 row_padding: dp(8.),
@@ -94,6 +110,10 @@ impl DensityPreset {
                 radius_sm: dp(3.),
                 radius_md: dp(4.),
                 radius_lg: dp(6.),
+                icon_sm: dp(12.),
+                icon_md: dp(14.),
+                icon_lg: dp(16.),
+                icon_xl: dp(18.),
             },
         }
     }
@@ -108,6 +128,15 @@ impl Density {
             TextRole::Small => self.small,
             TextRole::Label => self.label,
             TextRole::Code => self.code,
+        }
+    }
+
+    pub fn icon(&self, size: IconSize) -> Dp {
+        match size {
+            IconSize::Small => self.icon_sm,
+            IconSize::Medium => self.icon_md,
+            IconSize::Large => self.icon_lg,
+            IconSize::XLarge => self.icon_xl,
         }
     }
 }

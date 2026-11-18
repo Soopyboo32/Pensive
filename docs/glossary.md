@@ -10,7 +10,7 @@ Words that mean something specific in Pensive. Where a term also exists in GPUI 
 | Element | What views and components render into, such as `div()` and text. GPUI's lowest level. |
 | Mock | A view or component rendered in one named state from fixtures. Mock as in mockup, not a test double. |
 | Gallery | A component's mock that shows all its states in a labeled grid. |
-| Atlas | Every mock of one subject in a numbered grid. `cargo mocks` writes it to `target/mocks/<subject>.png` when it renders all of them. A gallery is one mock. An atlas is built from several. |
+| Atlas | Every mock of one subject in a numbered grid. `cargo mocks` writes it to `target/mocks/<subject>.png` when it renders all of them, and continues on `<subject>-2.png` and on when it's too large for one image. A gallery is one mock. An atlas is built from several. |
 | Mock browser | A screen in `cargo demo` that lists every mock by subject, with its thumbnail, and opens any of them in the current window. Ctrl Shift M shows it from anywhere. Its grid for one subject matches that subject's atlas. |
 | Notice | What Pensive tells the user about how something went: a success, warning or error, tagged with where it came from (UI, Git, Config or Fixture). It shows on the control it's about, or as a toast and in the badge's list. |
 | Fixture | Fixed sample data for mocks, tests and `cargo demo`, in `model` behind a `fixtures` feature. |

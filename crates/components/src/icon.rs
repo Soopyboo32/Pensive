@@ -2,7 +2,7 @@
 
 use gpui::{App, Hsla, IntoElement, RenderOnce, SharedString, Styled, Window, svg};
 use strum::{IntoStaticStr, VariantArray};
-use theme::{ActiveTheme, Dp, dp};
+use theme::{ActiveTheme, Dp, IconSize, dp};
 
 /// A Lucide icon, named as Lucide names it, or a window control, which are drawn to match each
 /// other in size where Lucide's minus, square and x don't. Each one is a file in `assets/icons`.
@@ -73,22 +73,34 @@ impl IconName {
 #[derive(IntoElement)]
 pub struct Icon {
     name: IconName,
-    size: Dp,
+    size: Size,
     color: Option<Hsla>,
 }
 
+enum Size {
+    Density(IconSize),
+    Exact(Dp),
+}
+
 impl Icon {
-    /// A 16 px icon in `text_muted`.
+    /// A large icon in `text_muted`.
     pub fn new(name: IconName) -> Self {
         Self {
             name,
-            size: dp(16.),
+            size: Size::Density(IconSize::Large),
             color: None,
         }
     }
 
-    pub fn size(mut self, size: Dp) -> Self {
-        self.size = size;
+    /// A size that follows the density.
+    pub fn size(mut self, size: IconSize) -> Self {
+        self.size = Size::Density(size);
+        self
+    }
+
+    /// An exact size, for an icon sized by its own layout or one that stays put in every density.
+    pub fn exact_size(mut self, size: Dp) -> Self {
+        self.size = Size::Exact(size);
         self
     }
 
@@ -100,9 +112,13 @@ impl Icon {
 
 impl RenderOnce for Icon {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let size = match self.size {
+            Size::Density(size) => cx.density().icon(size),
+            Size::Exact(size) => size,
+        };
         svg()
             .path(self.name.path())
-            .size(self.size)
+            .size(size)
             .flex_none()
             .text_color(self.color.unwrap_or(cx.theme().colors.text_muted))
     }
@@ -116,7 +132,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                 IconName::VARIANTS.iter().map(move |&name| {
                     (
                         <&str>::from(name),
-                        Icon::new(name).size(dp(size)).into_any_element(),
+                        Icon::new(name).exact_size(dp(size)).into_any_element(),
                     )
                 })
             };

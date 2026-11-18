@@ -7,13 +7,12 @@ use gpui::{
     Animation, AnimationExt, AnyElement, App, ElementId, SharedString, Window, deferred, div,
     ease_out_quint, prelude::*,
 };
-use theme::{ActiveTheme, Dp, HAIRLINE, Typeset, dp};
+use theme::{ActiveTheme, Dp, HAIRLINE, IconSize, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, OnClick as _, Tooltip, callback};
 
 /// How long the fill and the bar take to reach a new item, and the rail to widen or narrow.
 const SLIDE: Duration = Duration::from_millis(150);
-const ICON: Dp = dp(18.);
 /// Between buttons.
 const GAP: Dp = dp(4.);
 /// Around the buttons, on every side.
@@ -151,7 +150,7 @@ impl RenderOnce for RailButton {
                     .items_center()
                     .justify_center()
                     .size(size)
-                    .child(Icon::new(self.icon).size(ICON).color(color)),
+                    .child(Icon::new(self.icon).size(IconSize::XLarge).color(color)),
             )
             .when(self.named, |button| {
                 button.child(

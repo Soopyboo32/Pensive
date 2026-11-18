@@ -6,7 +6,7 @@ use gpui::{
     AnyElement, App, Div, ElementId, Entity, MouseButton, Pixels, Point, SharedString, Stateful,
     Window, WindowControlArea, div, point, prelude::*, px,
 };
-use theme::{ActiveTheme, Dp, HAIRLINE, Typeset, dp};
+use theme::{ActiveTheme, Dp, HAIRLINE, IconSize, Typeset, dp};
 
 use crate::{Breadcrumb, Callback, Icon, IconButton, IconName, Tone, callback};
 
@@ -180,7 +180,7 @@ impl RenderOnce for TitleBar {
                         .gap_1p5()
                         .child(
                             Icon::new(IconName::GitBranch)
-                                .size(dp(14.))
+                                .size(IconSize::Medium)
                                 .color(colors.text_muted),
                         )
                         .child(
@@ -199,7 +199,7 @@ impl RenderOnce for TitleBar {
                     .chain(branch.map(IntoElement::into_any_element))
                     .chain(settings.take()),
             )
-            .chevron_size(dp(14.))
+            .chevron_size(IconSize::Medium)
             .into_any_element()
         });
         // With no project, Settings stands alone.
@@ -218,7 +218,7 @@ impl RenderOnce for TitleBar {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .children(tone.icon(14., colors))
+                        .children(tone.icon(IconSize::Medium, colors))
                         .child(count.to_string())
                 })
             };

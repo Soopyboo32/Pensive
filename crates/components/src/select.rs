@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use gpui::{App, ElementId, SharedString, Window, div, prelude::*};
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset};
 
 use crate::{
     Callback, Icon, IconName, child_id,
@@ -120,7 +120,7 @@ impl RenderOnce for Select {
                 } else {
                     IconName::ChevronDown
                 })
-                .size(dp(14.))
+                .size(IconSize::Medium)
                 .color(if open {
                     colors.text_muted
                 } else {
@@ -202,16 +202,16 @@ mod tests {
             chosen: chosen.clone(),
         });
         cx.simulate_resize(size(px(400.), px(300.)));
-        // The menu starts 4 px under the 28 px field, and each option is a 28 px row inside its
-        // 1 px border and 4 px of padding, so the second option's middle is at 79 px.
-        cx.simulate_click(point(px(20.), px(79.)), Modifiers::none());
+        // The menu starts 4 px under the 30 px field, and each option is a 30 px row inside its
+        // 1 px border and 4 px of padding, so the second option's middle is at 84 px.
+        cx.simulate_click(point(px(20.), px(84.)), Modifiers::none());
         assert_eq!(
             chosen.get(),
             None,
             "the menu is closed until the field is clicked"
         );
         cx.simulate_click(point(px(20.), px(14.)), Modifiers::none());
-        cx.simulate_click(point(px(20.), px(79.)), Modifiers::none());
+        cx.simulate_click(point(px(20.), px(84.)), Modifiers::none());
         assert_eq!(chosen.get(), Some(1));
     }
 }

@@ -14,7 +14,7 @@ use gpui::{
 #[cfg(feature = "mocks")]
 pub(crate) use mocks::mocks;
 use model::{Notice, ProjectId, Projects};
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, Dp, Typeset, dp};
 
 #[cfg(feature = "mocks")]
 use crate::mock_browser::{MockBrowser, MockBrowserEvent, MockMode, ViewMocks};
@@ -429,6 +429,18 @@ impl Pensive {
             ))
     }
 
+    /// The palette at a fixed height, so centering it keeps the search field still as results
+    /// change.
+    fn palette_slot(&self) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .h(PALETTE_HEIGHT)
+            .debug_selector(|| "palette".into())
+            .child(self.palette.clone())
+    }
+
     fn landing(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let density = cx.density();
@@ -437,9 +449,9 @@ impl Pensive {
             .flex()
             .flex_col()
             .items_center()
+            .justify_center()
             .gap_4()
-            .pt_12()
-            .pb_8()
+            .py_8()
             .child(
                 svg()
                     .path("logo.svg")
@@ -448,7 +460,7 @@ impl Pensive {
                     .mb_2()
                     .text_color(theme.colors.text_strong),
             )
-            .child(self.palette.clone())
+            .child(self.palette_slot())
             .child(
                 div()
                     .flex_none()
@@ -458,6 +470,9 @@ impl Pensive {
             )
     }
 }
+
+/// The palette's height. A shorter window shrinks it.
+const PALETTE_HEIGHT: Dp = dp(480.);
 
 /// The share of a display's usable area that a windowed window takes.
 const WINDOWED_SHARE: f32 = 0.75;
@@ -528,6 +543,7 @@ pub(crate) fn window_options(bounds: WindowBounds) -> WindowOptions {
         }),
         window_decorations: Some(WindowDecorations::Client),
         app_id: Some("pensive".into()),
+        icon: Some(assets::app_icon()),
         ..Default::default()
     }
 }
@@ -620,10 +636,10 @@ impl Render for Pensive {
                         .flex()
                         .flex_col()
                         .items_center()
-                        .pt_16()
-                        .pb_16()
+                        .justify_center()
+                        .py_16()
                         .bg(scrim(cx))
-                        .child(self.palette.clone()),
+                        .child(self.palette_slot()),
                 )
             });
         #[cfg(feature = "mocks")]
@@ -653,7 +669,7 @@ mod tests {
     use model::fixtures::HARBOR;
 
     use super::*;
-    use crate::test_support::{click, pensive_window};
+    use crate::test_support::{click, pensive_window, secondary};
 
     fn palette_open(view: &Entity<Pensive>, cx: &mut VisualTestContext) -> bool {
         view.read_with(cx, |pensive, _| pensive.palette_open)
@@ -698,9 +714,10 @@ mod tests {
     fn a_click_outside_the_palette_closes_it(cx: &mut TestAppContext) {
         let (view, cx) = pensive_window(cx);
         cx.dispatch_action(OpenPalette);
-        let center = cx.update(|window, _| window.viewport_size().width / 2.);
+        cx.run_until_parked();
+        let palette = cx.debug_bounds("palette").unwrap();
 
-        click(cx, point(center, px(90.)));
+        click(cx, palette.origin + point(palette.size.width / 2., px(24.)));
         assert!(palette_open(&view, cx));
         assert!(input_focused(&view, cx));
 
@@ -722,17 +739,17 @@ mod tests {
     }
 
     #[gpui::test]
-    fn ctrl_equals_zooms_in_and_ctrl_zero_resets(cx: &mut TestAppContext) {
+    fn equals_zooms_in_and_zero_resets(cx: &mut TestAppContext) {
         let (_, cx) = pensive_window(cx);
         let rem = |cx: &mut VisualTestContext| cx.update(|window, _| window.rem_size());
         let at_100 = rem(cx);
-        cx.simulate_keystrokes("ctrl-= ctrl-=");
+        cx.simulate_keystrokes(&format!("{} {}", secondary("="), secondary("=")));
         cx.run_until_parked();
         assert_eq!(rem(cx), at_100 * 1.25);
-        cx.simulate_keystrokes("ctrl--");
+        cx.simulate_keystrokes(&secondary("-"));
         cx.run_until_parked();
         assert_eq!(rem(cx), at_100 * 1.1);
-        cx.simulate_keystrokes("ctrl-0");
+        cx.simulate_keystrokes(&secondary("0"));
         cx.run_until_parked();
         assert_eq!(rem(cx), at_100);
     }

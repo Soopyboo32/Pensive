@@ -365,7 +365,7 @@ fn settings() -> CommandPalette {
         .section(PaletteSection::new(
             "Appearance",
             [PaletteEntry::new("Density")
-                .description("Calm has larger text and 28 px rows")
+                .description("Calm has larger text and 30 px rows")
                 .control(Select::new("density", "Calm"))],
         ))
         .selected(0)

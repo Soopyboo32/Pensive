@@ -2,7 +2,7 @@
 //! smaller for a search result, and a page's title under a rule.
 
 use gpui::{App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div};
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset, dp};
 
 use crate::{Icon, IconName};
 
@@ -50,7 +50,11 @@ impl RenderOnce for CategoryHeading {
                 .px(density.row_padding)
                 .typeset(density.small)
                 .text_color(colors.text_faint)
-                .child(Icon::new(self.icon).size(dp(14.)).color(colors.text_faint))
+                .child(
+                    Icon::new(self.icon)
+                        .size(IconSize::Medium)
+                        .color(colors.text_faint),
+                )
                 .child(self.name);
         }
         let tile = density.row_height + dp(4.);

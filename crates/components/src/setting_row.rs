@@ -140,7 +140,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                         SettingRow::new(
                             "density",
                             "Density",
-                            "Calm has larger text and 28 px rows",
+                            "Calm has larger text and 30 px rows",
                             SegmentedControl::new("density-control", ["Calm", "Dense"], Some(1)),
                         )
                         .changed_from(Some("Calm".into()))

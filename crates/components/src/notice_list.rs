@@ -1,7 +1,7 @@
 //! The notices that are held, errors first, each dismissable, with Clear all at the top.
 
 use gpui::{App, ElementId, SharedString, Window, div, prelude::*};
-use theme::{ActiveTheme, Dp, Shadow, Typeset, dp};
+use theme::{ActiveTheme, Dp, IconSize, Shadow, Typeset, dp};
 
 use crate::{Callback, IconButton, IconName, Tag, Tone, callback};
 
@@ -102,7 +102,7 @@ impl RenderOnce for NoticeList {
                 .hover(|row| row.bg(colors.surface_selected))
                 .children(
                     row.tone
-                        .icon(16., colors)
+                        .icon(IconSize::Large, colors)
                         .map(|icon| div().mt_0p5().child(icon)),
                 )
                 .child(

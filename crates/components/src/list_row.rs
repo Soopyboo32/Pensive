@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, ElementId, Hsla, SharedString, Window, deferred, div, prelude::*};
-use theme::{ActiveTheme, Density, Dp, HAIRLINE, ThemeColors, Typeset, dp};
+use theme::{ActiveTheme, Density, Dp, HAIRLINE, IconSize, ThemeColors, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, callback};
 
@@ -227,7 +227,7 @@ impl RenderOnce for ListRow {
                     } else {
                         IconName::ChevronRight
                     })
-                    .size(mark)
+                    .exact_size(mark)
                     .color(if self.dimmed {
                         colors.text_disabled
                     } else {
@@ -375,7 +375,9 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                                     .depth(1)
                                     .compact()
                                     .code()
-                                    .leading(crate::Icon::new(IconName::Braces).size(dp(12.)))
+                                    .leading(
+                                        crate::Icon::new(IconName::Braces).size(IconSize::Small),
+                                    )
                                     .trailing(DiffStat::new(9, 2)),
                             ]),
                         ),

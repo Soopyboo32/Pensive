@@ -37,15 +37,15 @@ fn untouched(_: &mut PaletteView, _: &mut Context<PaletteView>) {}
 
 pub(crate) fn mocks() -> Vec<Mock> {
     vec![
-        Mock::new("root", "empty", |window, cx| {
+        mock_window::mock("root", "empty", |window, cx| {
             crate::declare_settings(cx);
             let projects = cx.new(|_| Projects::new(Arc::new(FakeGit::default())));
             cx.new(|cx| Pensive::new(projects, None, window, cx)).into()
         }),
-        Mock::new("root", "landing", |w, cx| {
+        mock_window::mock("root", "landing", |w, cx| {
             window(None, None, untouched, w, cx)
         }),
-        Mock::new("root", "landing_typing", |w, cx| {
+        mock_window::mock("root", "landing_typing", |w, cx| {
             window(
                 None,
                 None,
@@ -54,10 +54,10 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("root", "project", |w, cx| {
+        mock_window::mock("root", "project", |w, cx| {
             window(Some(PENSIVE), None, untouched, w, cx)
         }),
-        Mock::new("root", "run_not_wired", |w, cx| {
+        mock_window::mock("root", "run_not_wired", |w, cx| {
             let view = mock_window::pensive(Some(PENSIVE), w, cx);
             view.update(cx, |pensive, cx| {
                 let clear = cx.spawn(async |_, _| {});
@@ -65,16 +65,16 @@ pub(crate) fn mocks() -> Vec<Mock> {
             });
             view.into()
         }),
-        Mock::new("root", "palette", |w, cx| {
+        mock_window::mock("root", "palette", |w, cx| {
             window(Some(PENSIVE), Some(Tab::All), untouched, w, cx)
         }),
-        Mock::new("root", "active", |w, cx| {
+        mock_window::mock("root", "active", |w, cx| {
             window(Some(PENSIVE), Some(Tab::Active), untouched, w, cx)
         }),
-        Mock::new("root", "commands", |w, cx| {
+        mock_window::mock("root", "commands", |w, cx| {
             window(Some(PENSIVE), Some(Tab::Commands), untouched, w, cx)
         }),
-        Mock::new("root", "scoped", |w, cx| {
+        mock_window::mock("root", "scoped", |w, cx| {
             window(
                 Some(PENSIVE),
                 Some(Tab::All),
@@ -86,7 +86,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("root", "no_results", |w, cx| {
+        mock_window::mock("root", "no_results", |w, cx| {
             window(
                 Some(PENSIVE),
                 Some(Tab::All),
@@ -98,7 +98,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("root", "clone", |w, cx| {
+        mock_window::mock("root", "clone", |w, cx| {
             window(
                 Some(PENSIVE),
                 Some(Tab::All),
@@ -107,7 +107,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("root", "settings", |w, cx| {
+        mock_window::mock("root", "settings", |w, cx| {
             window(
                 Some(PENSIVE),
                 Some(Tab::All),
@@ -116,7 +116,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("root", "find_settings", |w, cx| {
+        mock_window::mock("root", "find_settings", |w, cx| {
             window(
                 Some(PENSIVE),
                 Some(Tab::All),

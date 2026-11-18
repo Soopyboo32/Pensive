@@ -1,10 +1,13 @@
 //! Named mock states for views, rendered headlessly for review and regression tests.
 
-pub mod atlas;
+#[cfg(not(target_family = "wasm"))]
+mod atlas;
 pub mod diff;
+pub mod grid;
 #[cfg(not(target_family = "wasm"))]
 mod headless;
 
+#[cfg(not(target_family = "wasm"))]
 pub use atlas::Atlas;
 use gpui::{
     AnyElement, AnyView, App, AppContext, Context, IntoElement, ParentElement, Pixels, Render,

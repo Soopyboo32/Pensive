@@ -8,7 +8,7 @@ use components::{
 use gpui::{AnyElement, App, Context, SharedString, Window, deferred, div, prelude::*};
 use model::{Changes, Commit, Staging, short_sha};
 use strum::VariantArray;
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset, dp};
 
 use super::{Control, FileLayout, ProjectView, Source};
 use crate::{PANEL, notices, view_callback, view_callback_with};
@@ -72,7 +72,7 @@ impl ProjectView {
             .border_color(colors.border_subtle)
             .child(
                 Icon::new(IconName::Cloud)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color(colors.text_faint),
             )
             .child(
@@ -217,7 +217,7 @@ impl ProjectView {
                             } else {
                                 IconName::ChevronRight
                             })
-                            .size(dp(12.))
+                            .size(IconSize::Small)
                             .color(colors.text_faint),
                         )
                     })
@@ -482,7 +482,7 @@ fn description_chip(cx: &mut Context<ProjectView>) -> impl IntoElement {
         .bg(colors.surface_selected)
         .child(
             Icon::new(IconName::Ellipsis)
-                .size(dp(12.))
+                .size(IconSize::Small)
                 .color(colors.text_muted),
         )
 }

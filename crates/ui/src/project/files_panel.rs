@@ -9,7 +9,7 @@ use std::{
 use components::{Icon, IconButton, IconName, Kbd, ListRow, StatusMark};
 use gpui::{AnyElement, App, Context, Focusable, Hsla, Window, div, prelude::*};
 use model::{FileKey, FileStatus, Source};
-use theme::{ActiveTheme, ThemeColors, Typeset, dp};
+use theme::{ActiveTheme, IconSize, ThemeColors, Typeset, dp};
 
 use super::{
     Control, ProjectView,
@@ -138,7 +138,7 @@ impl ProjectView {
             .typeset(density.small)
             .child(
                 Icon::new(IconName::Search)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color(colors.text_faint),
             )
             .child(div().flex_1().min_w_0().child(self.file_filter.clone()))
