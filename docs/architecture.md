@@ -26,20 +26,21 @@ It publishes cheap `text::TextSnapshot` values from its existing Rope, with sepa
 identities and revisions for the base and editable sides. The base also retains its existing
 flat string for borrowed removed-line display; its immutable Rope is built when base contents
 arrive, never on a snapshot request. Background diff publication checks both source stamps
-and its request generation. [Shared text](decisions/shared-text.md) defines the byte contract,
-transaction ordering and invalidation rules.
+and its request generation. Edits, grouped undo and redo, and disk reloads each publish
+one revision with ordered changes in UTF-8 byte coordinates.
 
 `GitBackend::versions` retains both original paths and resolved commit origins in
 `FileVersions`; its fake obeys the same contract. `Document::source_snapshot` pairs each
 side's existing text snapshot with that context and a selection from the shared language
 registry. `Projects::set_languages` updates existing and future documents without changing
-their text stamps. [Language registration](decisions/language-registration.md) defines
-recognition precedence, installed capabilities and configuration invalidation.
+their text stamps. Explicit path, filename and extension associations take precedence
+over bundled recognition. Language results also depend on source context and registry
+configuration.
 
 `Document::request_syntax` prepares tokens for a byte range on one side. It runs syntax work
 on GPUI's background executor and notifies observers when `Document::syntax_tokens` has a
-result for the current input. [Syntax providers](decisions/syntax-providers.md) describes the
-parse cache, edit reuse and target coverage.
+result for the current input. Providers parse the full snapshot and reuse completed parse
+state when the source, provider selection and edit history match.
 
 ## Rules
 
