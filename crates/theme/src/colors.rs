@@ -109,7 +109,7 @@ impl ThemeColors {
         }
     }
 
-    /// Every role in field order, grouped as in `docs/design.md`.
+    /// Every role in field order, with the group the theme gallery lists it under.
     pub fn roles(&self) -> Vec<Role> {
         let role = |group, name, color| Role { group, name, color };
         vec![
