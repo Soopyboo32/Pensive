@@ -10,7 +10,7 @@ Sets up a design session whose boards use the app's own values. Boards are scree
 
 ## Setup
 
-1. Read `docs/design.md` for the decisions every draft follows.
+1. Read `docs/design.md` for the feel every draft aims for.
 2. Read the `theme` crate. It is the only source of colors, fonts and sizes.
 3. The session's topic comes with the invocation ($ARGUMENTS in Claude Code). If there is none, ask for one before making anything.
 4. Write `target/design/<topic>/tokens.css` from the crate. Git ignores `target/`.
@@ -42,11 +42,10 @@ Without these tools, render each board to a PNG with a headless browser, give th
 
 Follow `docs/architecture.md` for where the code goes. Render it with `cargo mocks <filter>` and compare the PNGs to the board at the same size until they match.
 
-1. **Record the decisions.** Move what was approved into `docs/design.md`, as decisions rather than values. Proposals that became values go in code, not the doc.
-2. **Build the parts first.** Anything the boards draw in more than one place, such as a keycap or a toggle, becomes its own component with a gallery. Render and match those before building the component that uses them.
-3. **Port the boards' data as mocks.** Give each board state a mock with the same name and the same sample data, so every PNG has exactly one board to compare against. Add a Dense mock for anything with rows or a fixed height. A mock is one frame, so give an animated board's resting states their own mocks.
-4. **Derive new sizes from the theme.** Write a size the crate lacks in terms of a density field, like `row_height * 2 - 8px`, so Dense follows without a second value. Props that pick a color take a role, never a hex value.
-5. **Add icons through `assets`.** Download the Lucide SVG at the version the other icons use into `assets/icons`, list it in the `assets` crate, and add its `IconName`. A test fails if a name has no file.
-6. **Compare, then fix.** Open each PNG next to the board's preview. Mocks render at twice their size. For text of two sizes on one line, give both the same line height and center them, because `items_baseline` doesn't line them up in GPUI.
-7. **Pixel-peep every component you made.** Once the view matches, go back over the gallery of each component you added or changed, one PNG at a time, at full size beside its board. Check edges and alignment to the pixel, each gap against the board's value, text size, weight and color, and every state the gallery shows, then the same in Dense. Fix what differs and render again until nothing does. A component that looks right inside the view can still be a pixel off on its own.
-8. **Hand over for review.** Run the checks in `AGENTS.md`, then run `cargo mocks <subject>/` and show the subject's atlas, `target/mocks/<subject>.png` and any `-2`, `-3` pages after it, not a description of it. A subject with one mock has no atlas, so show that mock's PNG. Don't commit. The user reviews the diff.
+1. **Build the parts first.** Anything the boards draw in more than one place, such as a keycap or a toggle, becomes its own component with a gallery. Render and match those before building the component that uses them.
+2. **Port the boards' data as mocks.** Give each board state a mock with the same name and the same sample data, so every PNG has exactly one board to compare against. Add a Dense mock for anything with rows or a fixed height. A mock is one frame, so give an animated board's resting states their own mocks.
+3. **Derive new sizes from the theme.** Write a size the crate lacks in terms of a density field, like `row_height * 2 - 8px`, so Dense follows without a second value. Props that pick a color take a role, never a hex value.
+4. **Add icons through `assets`.** Download the Lucide SVG at the version the other icons use into `assets/icons`, list it in the `assets` crate, and add its `IconName`. A test fails if a name has no file.
+5. **Compare, then fix.** Open each PNG next to the board's preview. Mocks render at twice their size. For text of two sizes on one line, give both the same line height and center them, because `items_baseline` doesn't line them up in GPUI.
+6. **Pixel-peep every component you made.** Once the view matches, go back over the gallery of each component you added or changed, one PNG at a time, at full size beside its board. Check edges and alignment to the pixel, each gap against the board's value, text size, weight and color, and every state the gallery shows, then the same in Dense. Fix what differs and render again until nothing does. A component that looks right inside the view can still be a pixel off on its own.
+7. **Hand over for review.** Run the checks in `AGENTS.md`, then run `cargo mocks <subject>/` and show the subject's atlas, `target/mocks/<subject>.png` and any `-2`, `-3` pages after it, not a description of it. A subject with one mock has no atlas, so show that mock's PNG. Don't commit. The user reviews the diff.
