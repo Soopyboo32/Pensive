@@ -34,7 +34,7 @@ The same thing works the same way everywhere. Ctrl K opens the palette from any 
 
 ## Motion shows where things went
 
-Motion explains a change and then stops. A segmented control's selection stretches to its new segment. Settings keeps the rail and the panel's width, so opening it reads as a change of view instead of a new place.
+Motion explains a change and then stops. A segmented control's selection stretches to its new segment. When the rail narrows, its names slide out under its edge.
 
 ## Taste is a setting
 
