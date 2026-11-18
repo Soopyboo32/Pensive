@@ -37,10 +37,11 @@ their text stamps. Explicit path, filename and extension associations take prece
 over bundled recognition. Language results also depend on source context and registry
 configuration.
 
-`Document::request_syntax` prepares tokens for a byte range on one side. It runs syntax work
-on GPUI's background executor and notifies observers when `Document::syntax_tokens` has a
-result for the current input. Providers parse the full snapshot and reuse completed parse
-state when the source, provider selection and edit history match.
+The editor submits visible source ranges to `Document` after the list lays out. Each side
+queries the union of its editor viewports on GPUI's background executor. The document
+publishes tokens for the current input and notifies observers to repaint. Providers parse
+the full snapshot and reuse completed parse state when the source, provider selection and
+edit history match.
 
 ## Rules
 

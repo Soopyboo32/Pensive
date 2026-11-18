@@ -1,12 +1,20 @@
-use std::ops::Range;
+use std::{
+    ops::Range,
+    rc::{Rc, Weak},
+};
 
 use gpui::{Context, Task};
-use language::{SyntaxCancellation, SyntaxState, TokenSpan};
+use language::{SyntaxCancellation, SyntaxState, TokenSpan, validate_syntax_ranges};
 use text::{InvalidOffset, TextChange};
 
 use super::{Document, DocumentSide, DocumentSnapshot};
 
 const EDIT_HISTORY_LIMIT: usize = 128;
+
+/// Identifies an editor's current attachment to a document. Dropping it
+/// releases its claim on query coverage.
+#[derive(Clone, Default)]
+pub struct SyntaxViewport(Rc<()>);
 
 #[derive(Default)]
 pub(super) struct DocumentSyntax {
@@ -17,6 +25,7 @@ pub(super) struct DocumentSyntax {
 
 #[derive(Default)]
 struct Side {
+    viewports: Vec<(Weak<()>, Vec<Range<usize>>)>,
     cache: Cache,
     worker: Option<Worker>,
     pending: Option<Request>,
@@ -32,12 +41,20 @@ struct Cache {
 #[derive(Clone)]
 struct Request {
     input: DocumentSnapshot,
-    range: Range<usize>,
+    ranges: Vec<Range<usize>>,
 }
 
-impl Request {
-    fn matches(&self, input: &DocumentSnapshot, range: &Range<usize>) -> bool {
-        self.range == *range && self.input.same_input(input)
+impl Side {
+    fn latest(&self) -> Option<&Request> {
+        self.pending
+            .as_ref()
+            .or_else(|| {
+                self.worker
+                    .as_ref()
+                    .filter(|worker| !worker.cancel.is_cancelled())
+                    .map(|worker| &worker.request)
+            })
+            .or_else(|| self.result.as_ref().map(|(request, _)| request))
     }
 }
 
@@ -86,29 +103,41 @@ impl Document {
         range: Range<usize>,
         cx: &mut Context<Self>,
     ) -> Result<(), InvalidOffset> {
+        self.request_syntax_ranges(side, vec![range], cx)
+    }
+
+    /// Request one batch of ordered, disjoint ranges on a side. Gaps need not
+    /// be queried even though the parser retains full-file context.
+    pub fn request_syntax_ranges(
+        &mut self,
+        side: DocumentSide,
+        ranges: Vec<Range<usize>>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), InvalidOffset> {
         let input = self.source_snapshot(side);
-        text::validate_range(input.text.rope(), &range)?;
+        validate_syntax_ranges(&input.text, &ranges)?;
         let state = self.syntax.side_mut(side);
-        if state
-            .pending
-            .as_ref()
-            .is_some_and(|request| request.matches(&input, &range))
-            || state.worker.as_ref().is_some_and(|worker| {
-                !worker.cancel.is_cancelled() && worker.request.matches(&input, &range)
-            })
-            || state
-                .result
-                .as_ref()
-                .is_some_and(|(request, _)| request.matches(&input, &range))
-        {
+        let matches =
+            |request: &Request| request.ranges == ranges && request.input.same_input(&input);
+        if state.latest().is_some_and(matches) {
             return Ok(());
         }
-        state.result = None;
         if let Some(worker) = &state.worker {
             worker.cancel.cancel();
         }
-        let plain = range.is_empty() || !input.present || input.language.syntax.is_none();
-        let request = Request { input, range };
+        // A scroll back can reuse the last completed window while the
+        // superseded query drains.
+        if state
+            .result
+            .as_ref()
+            .is_some_and(|(request, _)| matches(request))
+        {
+            state.pending = None;
+            return Ok(());
+        }
+        let plain =
+            ranges.iter().all(Range::is_empty) || !input.present || input.language.syntax.is_none();
+        let request = Request { input, ranges };
         if plain {
             state.pending = None;
             state.result = Some((request, Vec::new()));
@@ -123,10 +152,93 @@ impl Document {
     /// Tokens for the requested range of the current input. Returns `None`
     /// while work is pending or stale, and an empty slice for plain text.
     pub fn syntax_tokens(&self, side: DocumentSide, range: Range<usize>) -> Option<&[TokenSpan]> {
-        let (request, spans) = self.syntax.side(side).result.as_ref()?;
-        request
-            .matches(&self.source_snapshot(side), &range)
-            .then_some(spans.as_slice())
+        let state = self.syntax.side(side);
+        let (request, spans) = state.result.as_ref()?;
+        (std::ptr::eq(state.latest()?, request)
+            && request.ranges == [range]
+            && request.input.same_input(&self.source_snapshot(side)))
+        .then_some(spans.as_slice())
+    }
+
+    /// Whether this viewport needs to replace its padded coverage.
+    pub fn syntax_viewport_needs(
+        &self,
+        viewport: &SyntaxViewport,
+        side: DocumentSide,
+        visible: &[Range<usize>],
+    ) -> bool {
+        let viewport = Rc::downgrade(&viewport.0);
+        let previous = self
+            .syntax
+            .side(side)
+            .viewports
+            .iter()
+            .find(|(owner, _)| owner.ptr_eq(&viewport));
+        if visible.is_empty() {
+            return previous.is_some();
+        }
+        let input = self.source_snapshot(side);
+        if !input.present || input.language.syntax.is_none() {
+            return false;
+        }
+        let Some((_, ranges)) = previous else {
+            return true;
+        };
+        let mut ranges = ranges.iter().peekable();
+        visible.iter().any(|visible| {
+            while ranges
+                .peek()
+                .is_some_and(|range| range.end <= visible.start)
+            {
+                ranges.next();
+            }
+            ranges
+                .peek()
+                .is_none_or(|range| visible.start < range.start || visible.end > range.end)
+        })
+    }
+
+    /// Query the union of live editor viewports so two windows on the same
+    /// document share the parser and cannot cancel each other's coverage.
+    pub fn request_viewport_syntax(
+        &mut self,
+        viewport: &SyntaxViewport,
+        side: DocumentSide,
+        ranges: Vec<Range<usize>>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), InvalidOffset> {
+        validate_syntax_ranges(&self.source_snapshot(side).text, &ranges)?;
+        let viewport = Rc::downgrade(&viewport.0);
+        let viewports = &mut self.syntax.side_mut(side).viewports;
+        viewports.retain(|(owner, _)| owner.strong_count() > 0 && !owner.ptr_eq(&viewport));
+        if !ranges.is_empty() {
+            viewports.push((viewport, ranges));
+        }
+        let mut ranges: Vec<_> = viewports
+            .iter()
+            .flat_map(|(_, ranges)| ranges.iter().cloned())
+            .collect();
+        ranges.sort_unstable_by_key(|range| range.start);
+        let mut union: Vec<Range<usize>> = Vec::new();
+        for range in ranges {
+            if let Some(last) = union.last_mut().filter(|last| range.start <= last.end) {
+                last.end = last.end.max(range.end);
+            } else {
+                union.push(range);
+            }
+        }
+        self.request_syntax_ranges(side, union, cx)
+    }
+
+    /// Published spans for the current input, including coverage from the
+    /// previous viewport while a new query runs. Input mutations invalidate
+    /// this result before notifying views.
+    pub fn syntax_spans(&self, side: DocumentSide) -> &[TokenSpan] {
+        self.syntax
+            .side(side)
+            .result
+            .as_ref()
+            .map_or(&[], |(_, spans)| spans)
     }
 
     pub(super) fn record_syntax_change(&mut self, change: &TextChange) {
@@ -155,6 +267,12 @@ impl Document {
     pub(super) fn invalidate_syntax(&mut self, side: DocumentSide) {
         let input = self.source_snapshot(side);
         let state = self.syntax.side_mut(side);
+        if state
+            .latest()
+            .is_none_or(|request| !request.input.same_input(&input))
+        {
+            state.viewports.clear();
+        }
         if state
             .pending
             .as_ref()
@@ -196,7 +314,7 @@ impl Document {
             let (cache, spans) = cx
                 .background_executor()
                 .spawn(async move {
-                    let Request { input, range } = work;
+                    let Request { input, ranges } = work;
                     if cache
                         .input
                         .as_ref()
@@ -206,7 +324,13 @@ impl Document {
                     }
                     let spans = cache
                         .syntax
-                        .tokens(&input.text, &input.language, &changes, range, &work_cancel)
+                        .tokens_for_ranges(
+                            &input.text,
+                            &input.language,
+                            &changes,
+                            &ranges,
+                            &work_cancel,
+                        )
                         .expect("request range validated against its snapshot");
                     cache.input = Some(input);
                     (cache, spans)

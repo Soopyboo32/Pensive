@@ -58,7 +58,10 @@ pub fn changes() -> Changes {
 /// Both versions of the sample file `key` names. As in Git, the old version is the one at
 /// `renamed_from` when that's given, so a rename read without it has no old version.
 pub(crate) fn versions(key: &FileKey, renamed_from: Option<&Path>) -> Option<FileVersions> {
-    let samples = samples(&key.source);
+    let mut samples = samples(&key.source);
+    if key.path == Path::new(super::SYNTAX_SAMPLE) {
+        samples.push(syntax_sample());
+    }
     let old_path = renamed_from.unwrap_or(&key.path);
     let old = samples
         .iter()
@@ -349,6 +352,36 @@ fn root() -> Vec<(char, String)> {
     ]));
     lines.extend(unchanged(75..100));
     lines
+}
+
+fn syntax_sample() -> Sample {
+    let mut lines = vec![
+        (' ', "public class Greeting {"),
+        (' ', "    // Keep the response short."),
+        ('-', "    private final Object prefix = 404;"),
+        ('+', "    private final Object prefix = \"café\";"),
+        ('+', "    private final int limit = 12;"),
+        (' ', ""),
+        (' ', "    /*"),
+        (' ', "     * The default is used by the preview."),
+    ];
+    lines.extend(std::iter::repeat_n((' ', "     * More context."), 110));
+    lines.extend([
+        (' ', "     * End of the preview notes."),
+        (' ', "     */"),
+        (' ', "    public Object message() {"),
+        ('-', "        return send(\"old\", 12);"),
+        ('+', "        return send(\"new\", 24);"),
+        (' ', "    }"),
+        (' ', "}"),
+    ]);
+    file(
+        super::SYNTAX_SAMPLE,
+        FileStatus::Modified,
+        (3, 2),
+        Staging::Unstaged,
+    )
+    .lines(&lines)
 }
 
 /// The change the canvas draws in the main view.
