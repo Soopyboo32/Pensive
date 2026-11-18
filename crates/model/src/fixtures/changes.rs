@@ -8,8 +8,8 @@ use std::path::Path;
 use gpui::SharedString;
 
 use crate::{
-    Base, Changes, Commit, FileChange, FileKey, FileStatus, FileVersions, Source, Staging, Symbol,
-    SymbolKind, Upstream, Version,
+    Base, Changes, Commit, FileChange, FileKey, FileOrigin, FileSource, FileStatus, FileVersions,
+    Source, Staging, Symbol, SymbolKind, Upstream, Version,
 };
 
 /// Seven uncommitted files, two staged and one partly staged, then two unpushed commits and one
@@ -63,13 +63,36 @@ pub(crate) fn versions(key: &FileKey, renamed_from: Option<&Path>) -> Option<Fil
     let old = samples
         .iter()
         .find(|sample| sample.old_path() == old_path)
-        .map_or(Version::Missing, |sample| sample.versions.old.clone());
+        .map_or(Version::Missing, |sample| sample.versions.0.clone());
     let new = samples
         .into_iter()
         .find(|sample| sample.change.path == key.path)?
         .versions
-        .new;
-    Some(FileVersions { old, new })
+        .1;
+    let (old_revision, new_origin) = match &key.source {
+        Source::Uncommitted => (OPEN_PALETTE.to_owned(), FileOrigin::Worktree),
+        Source::Commit(sha) => (
+            if sha == OPEN_PALETTE {
+                ADD_PROJECTS
+            } else {
+                "ef032a6"
+            }
+            .to_owned(),
+            FileOrigin::Commit(Some(sha.to_string())),
+        ),
+    };
+    Some(FileVersions {
+        old,
+        new,
+        old_source: FileSource {
+            path: old_path.to_path_buf(),
+            origin: FileOrigin::Commit(Some(old_revision)),
+        },
+        new_source: FileSource {
+            path: key.path.clone(),
+            origin: new_origin,
+        },
+    })
 }
 
 const OPEN_PALETTE: &str = "5e35ea9";
@@ -78,7 +101,7 @@ const ADD_PROJECTS: &str = "6284693";
 /// A file as the sidebar lists it, and its two versions.
 struct Sample {
     change: FileChange,
-    versions: FileVersions,
+    versions: (Version, Version),
 }
 
 impl Sample {
@@ -433,10 +456,10 @@ impl Build for FileChange {
         };
         let status = self.status();
         let new_file = matches!(status, FileStatus::Added | FileStatus::Untracked);
-        let versions = FileVersions {
-            old: side('+', new_file),
-            new: side('-', status == FileStatus::Deleted),
-        };
+        let versions = (
+            side('+', new_file),
+            side('-', status == FileStatus::Deleted),
+        );
         Sample {
             change: self,
             versions,
