@@ -1,7 +1,6 @@
-//! Bundled filename and extension catalog. These entries recognize names only;
-//! none install a provider.
+//! Bundled filename and extension catalog.
 
-use crate::LanguageRegistration;
+use crate::{LanguageRegistration, syntax};
 
 pub(crate) fn registrations() -> Vec<LanguageRegistration> {
     let entries: &[(&str, &[&str], &[&str])] = &[
@@ -156,6 +155,7 @@ pub(crate) fn registrations() -> Vec<LanguageRegistration> {
                 .map(|extension| (*extension).into())
                 .collect();
             registration.aliases = registration.extensions.clone();
+            registration.providers.extend(syntax::registration(id));
             registration
         })
         .collect()

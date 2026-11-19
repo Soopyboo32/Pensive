@@ -3,3 +3,8 @@
 mocks = "test -p pensive --test render_mocks -- --only"
 # `cargo demo` runs the app on the sample projects, with the mock browser on Ctrl Shift M.
 demo = "run -p pensive --features demo"
+
+[env]
+# Generated grammar tables contain UTF-8 symbol names matched by the queries.
+CFLAGS_x86_64_pc_windows_msvc = "/utf-8"
+CFLAGS_aarch64_pc_windows_msvc = "/utf-8"

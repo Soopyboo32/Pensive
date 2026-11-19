@@ -1,6 +1,8 @@
 //! A changed file open in the main view: its text, the committed text it's compared with, and,
 //! for an uncommitted file, editing with undo and saving it back to the worktree.
 
+mod syntax;
+
 use std::{
     ops::Range,
     path::{Path, PathBuf},
@@ -55,6 +57,7 @@ pub struct Document {
     /// The diff running. Replacing it cancels it; stamps also guard publication.
     diffing: Option<Task<()>>,
     diff_generation: usize,
+    syntax: syntax::DocumentSyntax,
     undo: Vec<Vec<Edit>>,
     redo: Vec<Vec<Edit>>,
     /// Whether the next edit may join the last undo step.
@@ -76,7 +79,7 @@ pub enum DocumentSide {
 }
 
 /// One immutable input for language work. Validate the text stamp, original source
-/// context, presence and whole selection before publishing a future result.
+/// context, presence and whole selection before publishing a result.
 #[derive(Clone, Debug)]
 pub struct DocumentSnapshot {
     pub text: TextSnapshot,
@@ -87,10 +90,7 @@ pub struct DocumentSnapshot {
 
 impl DocumentSnapshot {
     pub fn same_input(&self, other: &Self) -> bool {
-        self.text.stamp() == other.text.stamp()
-            && self.source == other.source
-            && self.present == other.present
-            && self.language == other.language
+        self.text.stamp() == other.text.stamp() && self.same_context(other)
     }
 }
 
@@ -204,6 +204,7 @@ impl Document {
             diff: contents.diff,
             diffing: None,
             diff_generation: 0,
+            syntax: syntax::DocumentSyntax::default(),
             undo: Vec::new(),
             redo: Vec::new(),
             grouping: false,
@@ -253,6 +254,8 @@ impl Document {
 
     pub(crate) fn set_languages(&mut self, languages: Arc<Registry>, cx: &mut Context<Self>) {
         self.languages = languages;
+        self.invalidate_syntax(DocumentSide::Base);
+        self.invalidate_syntax(DocumentSide::New);
         cx.notify();
     }
 
@@ -388,11 +391,14 @@ impl Document {
         let before = self.text_stamp();
         let after = before.next();
         self.revision = after.revision;
-        cx.emit(DocumentEvent::Changed(TextChange {
+        let change = TextChange {
             before,
             after,
             edits,
-        }));
+        };
+        self.record_syntax_change(&change);
+        self.invalidate_syntax(DocumentSide::New);
+        cx.emit(DocumentEvent::Changed(change));
         self.rediff(cx);
     }
 
@@ -604,6 +610,8 @@ impl Document {
         if !self.is_dirty() && on_disk != self.on_disk {
             self.take_disk_text(on_disk, cx);
         }
+        self.invalidate_syntax(DocumentSide::Base);
+        self.invalidate_syntax(DocumentSide::New);
         self.disk_generation = self
             .disk_generation
             .checked_add(1)
@@ -612,7 +620,11 @@ impl Document {
     }
 
     fn set_on_disk(&mut self, on_disk: Version) {
+        let was_present = self.new_present;
         self.new_present = on_disk != Version::Missing;
+        if self.new_present != was_present {
+            self.invalidate_syntax(DocumentSide::New);
+        }
         self.on_disk = on_disk;
         self.disk_generation = self
             .disk_generation
@@ -855,6 +867,119 @@ mod tests {
                 });
             }
         }
+    }
+
+    #[gpui::test]
+    fn syntax_uses_both_languages_in_a_cross_extension_rename(cx: &mut TestAppContext) {
+        let text = "interface Box { value: string }";
+        let range = 0.."interface".len();
+        let mut versions = versions(Version::Text(text.into()), Version::Text(text.into()));
+        versions.old_source.path = "old.js".into();
+        versions.new_source.path = "new.ts".into();
+        let document = cx.new(|_| {
+            Document::new(
+                PENSIVE_ROOT.into(),
+                FileKey {
+                    source: Source::Uncommitted,
+                    path: "new.ts".into(),
+                },
+                Contents::new(versions).unwrap(),
+                Backend::new(Arc::new(FakeGit::default()), Origin::Git),
+            )
+        });
+        document.update(cx, |document, cx| {
+            document
+                .request_syntax(DocumentSide::Base, range.clone(), cx)
+                .unwrap();
+            document
+                .request_syntax(DocumentSide::New, range.clone(), cx)
+                .unwrap();
+        });
+        cx.run_until_parked();
+        document.read_with(cx, |document, _| {
+            let keyword = |side| {
+                document
+                    .syntax_tokens(side, range.clone())
+                    .unwrap()
+                    .iter()
+                    .any(|span| span.role() == crate::TokenRole::Keyword)
+            };
+            assert!(!keyword(DocumentSide::Base));
+            assert!(keyword(DocumentSide::New));
+        });
+    }
+
+    #[gpui::test]
+    fn syntax_discards_requests_overtaken_by_edits_and_configuration(cx: &mut TestAppContext) {
+        let (document, _) = sample("fn main() {}\r\n", cx);
+        document.update(cx, |document, cx| {
+            document
+                .request_syntax(DocumentSide::New, 0..2, cx)
+                .unwrap();
+            document.edit(0..2, "//", cx);
+            document.edit(2..2, " 🦀", cx);
+            document
+                .request_syntax(DocumentSide::New, 0..2, cx)
+                .unwrap();
+        });
+        cx.run_until_parked();
+        document.update(cx, |document, cx| {
+            let spans = document.syntax_tokens(DocumentSide::New, 0..2).unwrap();
+            assert_eq!(spans[0].role(), crate::TokenRole::Comment);
+            document
+                .request_syntax(DocumentSide::New, 0..7, cx)
+                .unwrap();
+            let mut registry = Registry::default();
+            registry
+                .associate(language::Association::Extension("rs".into()), "text")
+                .unwrap();
+            document.set_languages(Arc::new(registry), cx);
+            assert!(document.syntax_tokens(DocumentSide::New, 0..7).is_none());
+            document
+                .request_syntax(DocumentSide::New, 0..7, cx)
+                .unwrap();
+        });
+        cx.run_until_parked();
+        document.read_with(cx, |document, _| {
+            assert_eq!(
+                document.syntax_tokens(DocumentSide::New, 0..7),
+                Some([].as_slice())
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn deleted_side_is_plain_even_when_the_document_retains_dirty_text(cx: &mut TestAppContext) {
+        let (document, _) = sample("class Example {}\r\n", cx);
+        document.update(cx, |document, cx| {
+            document.edit(0..0, " ", cx);
+            let mut incoming = versions(
+                Version::Text("class Example {}\r\n".into()),
+                Version::Missing,
+            );
+            incoming.old_source.path = "Example.java".into();
+            incoming.new_source.path = "Example.java".into();
+            let stamp = document.start_refresh();
+            document.refresh(stamp, incoming, cx);
+            assert!(document.is_dirty());
+            document
+                .request_syntax(DocumentSide::Base, 0..5, cx)
+                .unwrap();
+            document
+                .request_syntax(DocumentSide::New, 1..6, cx)
+                .unwrap();
+        });
+        cx.run_until_parked();
+        document.read_with(cx, |document, _| {
+            assert_eq!(
+                document.syntax_tokens(DocumentSide::Base, 0..5).unwrap()[0].role(),
+                crate::TokenRole::Keyword
+            );
+            assert_eq!(
+                document.syntax_tokens(DocumentSide::New, 1..6),
+                Some([].as_slice())
+            );
+        });
     }
 
     #[gpui::test]

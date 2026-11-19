@@ -1,13 +1,15 @@
-//! One portable catalog for language recognition and installed provider selection.
-//! No I/O, GPUI, mutable document, parser or semantic engine lives here.
+//! Language recognition, provider selection and syntax over immutable text.
+//! Independent of I/O, GPUI and document editing.
 
 mod catalog;
+mod syntax;
 #[cfg(test)]
 mod tests;
 mod tokens;
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
+pub use syntax::{SyntaxCancellation, SyntaxState};
 pub use tokens::{TokenRole, TokenSpan};
 
 /// A canonical name, stable across registries and independent of source identity.
@@ -27,9 +29,8 @@ pub enum Capability {
     Semantic,
 }
 
-/// An installed provider's selection metadata. The host owns its implementation;
-/// register only capabilities it actually supplies for this language. No built-in
-/// registration currently installs a provider.
+/// An installed provider's selection metadata. Register only capabilities the
+/// implementation supplies for this language.
 #[derive(Clone, Debug)]
 pub struct ProviderRegistration {
     pub id: String,
