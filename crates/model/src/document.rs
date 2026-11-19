@@ -45,7 +45,7 @@ pub struct Document {
     /// Counts edits, so a save knows which text it was for.
     revision: usize,
     saved_revision: usize,
-    /// Counts disk writes and accepted version reads, so older reads cannot restore metadata.
+    /// Counts updates to `on_disk`, so reads started before one are dropped.
     disk_generation: usize,
     refresh_generation: usize,
     /// Set when the file changed on disk since it was read, which stops saving until the
@@ -556,13 +556,17 @@ impl Document {
         self.disk_generation
     }
 
-    /// Marks the newest requested versions read. An older read must not restore
-    /// its paths/commit origins even when all text revisions remain equal.
-    pub(crate) fn start_refresh(&mut self) -> RefreshStamp {
+    fn advance_refresh_generation(&mut self) {
         self.refresh_generation = self
             .refresh_generation
             .checked_add(1)
             .expect("refresh generation exhausted");
+    }
+
+    /// Marks the newest requested versions read. An older read must not restore
+    /// its paths/commit origins even when all text revisions remain equal.
+    pub(crate) fn start_refresh(&mut self) -> RefreshStamp {
+        self.advance_refresh_generation();
         RefreshStamp {
             disk: self.disk_generation,
             request: self.refresh_generation,
@@ -604,10 +608,8 @@ impl Document {
         if !self.is_dirty() && on_disk != self.on_disk {
             self.take_disk_text(on_disk, cx);
         }
-        self.disk_generation = self
-            .disk_generation
-            .checked_add(1)
-            .expect("disk generation exhausted");
+        // Retire the request even when it only updated base or source metadata.
+        self.advance_refresh_generation();
         cx.notify();
     }
 
@@ -1193,6 +1195,29 @@ mod tests {
                 "rejection preserves the published result"
             );
         });
+    }
+
+    #[gpui::test]
+    fn a_refresh_that_keeps_dirty_text_does_not_cancel_reload(cx: &mut TestAppContext) {
+        let (document, git) = sample("original", cx);
+        git.write_file(Path::new(PENSIVE_ROOT), Path::new(PATH), "changed on disk")
+            .unwrap();
+
+        document.update(cx, |document, cx| {
+            document.edit(0..0, "unsaved ", cx);
+            document.reload(cx);
+            let stamp = document.start_refresh();
+            let refreshed = versions(
+                Version::Text("original".into()),
+                Version::Text("changed on disk".into()),
+            );
+            document.refresh(stamp, refreshed, cx);
+            assert_eq!(document.text().to_string(), "unsaved original");
+        });
+
+        cx.run_until_parked();
+        assert_eq!(text(&document, cx), "changed on disk");
+        assert!(!document.read_with(cx, |document, _| document.is_dirty()));
     }
 
     #[gpui::test]
