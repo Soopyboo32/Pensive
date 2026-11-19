@@ -1,0 +1,10 @@
+[package]
+name = "text"
+version = "0.1.0"
+description = "Immutable source snapshots and byte-based text changes."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ropey.workspace = true
