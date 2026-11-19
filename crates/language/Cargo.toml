@@ -10,6 +10,7 @@ repository.workspace = true
 text.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+regex = { version = "1", default-features = false, features = ["std"] }
 tree-sitter = "=0.25.10"
 arborium-ada = "=2.18.2"
 arborium-agda = "=2.18.2"

@@ -1,3 +1,5 @@
+mod predicates;
+
 use std::{cmp::Reverse, collections::BTreeSet, ops::Range};
 
 use text::{Rope, TextChange, TextSnapshot};
@@ -9,6 +11,7 @@ use tree_sitter::{
 use crate::{TokenRole, TokenSpan};
 
 use super::{MAX_SPANS, SyntaxCancellation, grammars};
+use predicates::Predicate;
 
 const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PROGRESS_CALLBACKS: usize = 20_000;
@@ -17,6 +20,7 @@ pub(super) struct Grammar {
     language: Language,
     query: Query,
     roles: Vec<Option<TokenRole>>,
+    predicates: Vec<Vec<Predicate>>,
 }
 
 impl Grammar {
@@ -26,16 +30,35 @@ impl Grammar {
         if let Err(error) = &query {
             eprintln!("{error:?}");
         }
-        let query = query.ok()?;
+        let mut query = query.ok()?;
         let roles = query
             .capture_names()
             .iter()
             .map(|name| token_role(name))
             .collect();
+        let predicates = (0..query.pattern_count())
+            .map(|index| {
+                // Syntax alone supplies no property facts such as local bindings.
+                if query
+                    .property_predicates(index)
+                    .iter()
+                    .any(|(_, positive)| *positive)
+                {
+                    query.disable_pattern(index);
+                }
+                // QueryCursor only evaluates the built-in text predicates.
+                query
+                    .general_predicates(index)
+                    .iter()
+                    .map(Predicate::new)
+                    .collect::<Option<Vec<_>>>()
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some(Self {
             language,
             query,
             roles,
+            predicates,
         })
     }
 }
@@ -139,7 +162,6 @@ impl Native {
             return Vec::new();
         };
         let rope = snapshot.rope();
-        let len = rope.len_bytes();
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(range.clone()).set_match_limit(4096);
         let mut remaining = MAX_PROGRESS_CALLBACKS;
@@ -149,13 +171,7 @@ impl Native {
             let mut captures = cursor.captures_with_options(
                 &self.grammar.query,
                 tree.root_node(),
-                |node: Node<'_>| {
-                    let bytes = node.byte_range();
-                    rope.get_byte_slice(bytes.start.min(len)..bytes.end.min(len))
-                        .into_iter()
-                        .flat_map(|slice| slice.chunks().map(str::as_bytes))
-                        .chain((bytes.end > len).then_some(&b"\n"[..]))
-                },
+                |node: Node<'_>| node_text(rope, node),
                 QueryCursorOptions::new().progress_callback(&mut progress),
             );
             while let Some((matched, index)) = captures.next() {
@@ -169,7 +185,12 @@ impl Native {
                 let bytes = capture.node.byte_range();
                 let start = bytes.start.max(range.start);
                 let end = bytes.end.min(range.end);
-                if start < end && text::validate_range(rope, &(start..end)).is_ok() {
+                if start < end
+                    && text::validate_range(rope, &(start..end)).is_ok()
+                    && self.grammar.predicates[matched.pattern_index]
+                        .iter()
+                        .all(|predicate| predicate.matches(matched, rope))
+                {
                     found.push(Capture {
                         visible: start..end,
                         bytes,
@@ -185,6 +206,15 @@ impl Native {
         }
         flatten(snapshot, &found)
     }
+}
+
+fn node_text<'a>(rope: &'a Rope, node: Node<'_>) -> impl Iterator<Item = &'a [u8]> + use<'a> {
+    let bytes = node.byte_range();
+    let len = rope.len_bytes();
+    rope.get_byte_slice(bytes.start.min(len)..bytes.end.min(len))
+        .into_iter()
+        .flat_map(|slice| slice.chunks().map(str::as_bytes))
+        .chain((bytes.end > len).then_some(&b"\n"[..]))
 }
 
 fn chunk_from(rope: &Rope, byte: usize) -> &[u8] {

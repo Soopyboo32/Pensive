@@ -60,6 +60,55 @@ fn bundled_queries_compile_and_are_reachable_through_the_registry() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+fn bundled_queries_respect_predicates() {
+    let registry = Registry::default();
+    for (path, source, expected, rejected) in [
+        (
+            "CMakeLists.txt",
+            "set(my_var value FOO)\n",
+            ("FOO", TokenRole::Constant),
+            ("value", TokenRole::Constant),
+        ),
+        (
+            "main.odin",
+            "package main\nCOUNT :: 1\nmain :: proc() { name := COUNT }\n",
+            ("COUNT", TokenRole::Constant),
+            ("name", TokenRole::Constant),
+        ),
+        (
+            "struct.mm",
+            "struct Example { int member; }; int local = 1;\n",
+            ("member", TokenRole::Property),
+            ("local", TokenRole::Property),
+        ),
+        (
+            "build.groovy",
+            "def local = 1\n",
+            ("local", TokenRole::Variable),
+            ("local", TokenRole::Parameter),
+        ),
+    ] {
+        let spans = tokens(
+            &mut SyntaxState::default(),
+            &snapshot(source),
+            &registry.resolve(path),
+        );
+        has_role(source, &spans, expected.0, expected.1);
+        let start = source.find(rejected.0).unwrap();
+        let end = start + rejected.0.len();
+        assert!(
+            !spans.iter().any(|span| span.role() == rejected.1
+                && span.bytes().start < end
+                && start < span.bytes().end),
+            "{path}: unexpected {:?} for {:?}: {spans:?}",
+            rejected.1,
+            rejected.0
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn rust_precedence_and_hidden_multiline_context_are_preserved_in_byte_ranges() {
     let source = format!(
         "#[doc = \"déjà\"]\r\nfn read(n: usize) -> bool {{\r\n/*{}\r\n still 🦀 a comment\r\n*/ n == 42 || true\r\n}}",
@@ -208,6 +257,34 @@ fn change(rope: &mut Rope, before: &SourceStamp, edits: &[(Range<usize>, &str)])
         after: before.next(),
         edits: records,
     }
+}
+
+#[test]
+fn java_block_comment_spans_reach_eof_until_the_comment_is_closed() {
+    let source = "class Example { /* hidden\r\n café class Ignored {}";
+    let selection = Registry::default().resolve("Example.java");
+    let mut rope = Rope::from_str(source);
+    let input = TextSnapshot::new(stamp(), &rope);
+    let mut state = SyntaxState::default();
+    let spans = tokens(&mut state, &input, &selection);
+    let comment = source.find("/*").unwrap()..source.len();
+    assert!(spans.contains(&TokenSpan::new(&input, comment.clone(), TokenRole::Comment).unwrap()));
+
+    let eof = source.len();
+    let edit = change(&mut rope, input.stamp(), &[(eof..eof, " */ int value; }")]);
+    let input = TextSnapshot::new(edit.after.clone(), &rope);
+    let spans = state
+        .tokens(
+            &input,
+            &selection,
+            &[edit],
+            0..rope.len_bytes(),
+            &SyntaxCancellation::default(),
+        )
+        .unwrap();
+    let comment = comment.start..eof + " */".len();
+    assert!(spans.contains(&TokenSpan::new(&input, comment, TokenRole::Comment).unwrap()));
+    has_role(&rope.to_string(), &spans, "int", TokenRole::Keyword);
 }
 
 #[test]

@@ -4081,6 +4081,7 @@ dependencies = [
  "arborium-yuri",
  "arborium-zig",
  "arborium-zsh",
+ "regex",
  "text",
  "tree-sitter",
 ]

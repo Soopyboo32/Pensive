@@ -180,7 +180,7 @@ impl Lexer {
                     Mode::Space => self.emit(JavaTokenKind::Whitespace),
                     Mode::Ident(candidate) => self.emit(candidate.kind()),
                     Mode::Number => self.emit(JavaTokenKind::Number),
-                    Mode::LineComment => self.emit(JavaTokenKind::Comment),
+                    Mode::LineComment | Mode::BlockComment => self.emit(JavaTokenKind::Comment),
                     _ => self.emit(JavaTokenKind::Error),
                 }
                 return true;
