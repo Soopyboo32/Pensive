@@ -65,6 +65,7 @@ pub struct Editor {
     layouts: Layouts,
     focus_handle: FocusHandle,
     _document: Option<Subscription>,
+    _release: Subscription,
     _blur: [Subscription; 2],
 }
 
@@ -93,6 +94,7 @@ impl Editor {
             layouts: Layouts::default(),
             focus_handle,
             _document: None,
+            _release: cx.on_release(Self::release_syntax_viewport),
             _blur: [blur, deactivate],
         }
     }
@@ -108,6 +110,7 @@ impl Editor {
             return;
         }
         self.auto_save_now(cx);
+        self.release_syntax_viewport(cx);
         self._document = document.as_ref().map(|document| {
             cx.observe(document, |this, _, cx| {
                 this.clamp_selection(cx);
@@ -138,6 +141,14 @@ impl Editor {
         self.row_input = None;
         self.list.reset(0);
         self.reveal_cursor(cx);
+    }
+
+    fn release_syntax_viewport(&mut self, cx: &mut App) {
+        if let Some(document) = &self.document {
+            document.update(cx, |document, _| {
+                document.release_syntax_viewport(&self.syntax_viewport);
+            });
+        }
     }
 
     pub fn mode(&self) -> Mode {
@@ -775,9 +786,14 @@ mod tests {
         assert_eq!(text(&editor, cx), original);
     }
 
-    fn token_at(document: &Document, side: DocumentSide, byte: usize) -> Option<TokenRole> {
+    fn token_at(
+        document: &Document,
+        viewport: &SyntaxViewport,
+        side: DocumentSide,
+        byte: usize,
+    ) -> Option<TokenRole> {
         document
-            .syntax_spans(side)
+            .syntax_spans(viewport, side)
             .iter()
             .find(|span| span.bytes().contains(&byte))
             .map(model::TokenSpan::role)
@@ -786,28 +802,35 @@ mod tests {
     #[gpui::test]
     async fn syntax_follows_real_viewports_sides_and_edits(cx: &mut TestAppContext) {
         let (editor, _, cx) = editor_on(Source::Uncommitted, SYNTAX_SAMPLE, cx).await;
-        let document = editor.read_with(cx, |editor, _| editor.document().unwrap().clone());
+        let (document, viewport) = editor.read_with(cx, |editor, _| {
+            (
+                editor.document().unwrap().clone(),
+                editor.syntax_viewport.clone(),
+            )
+        });
+        let visible_token_at =
+            |document: &Document, side, byte| token_at(document, &viewport, side, byte);
         document.read_with(cx, |document, _| {
             let base = document.base_snapshot().rope().to_string();
             let new = document.text().to_string();
             assert_eq!(
-                token_at(document, DocumentSide::Base, base.find("404").unwrap()),
+                visible_token_at(document, DocumentSide::Base, base.find("404").unwrap()),
                 Some(TokenRole::Number)
             );
             assert_eq!(
-                token_at(document, DocumentSide::New, new.find("café").unwrap()),
+                visible_token_at(document, DocumentSide::New, new.find("café").unwrap()),
                 Some(TokenRole::String)
             );
             assert_eq!(
-                token_at(document, DocumentSide::Base, base.find("old").unwrap()),
+                visible_token_at(document, DocumentSide::Base, base.find("old").unwrap()),
                 Some(TokenRole::String)
             );
             assert_eq!(
-                token_at(document, DocumentSide::New, new.find("24").unwrap()),
+                visible_token_at(document, DocumentSide::New, new.find("24").unwrap()),
                 Some(TokenRole::Number)
             );
             assert_eq!(
-                token_at(
+                visible_token_at(
                     document,
                     DocumentSide::New,
                     document.text().line_to_byte(55) + 7
@@ -820,7 +843,7 @@ mod tests {
         cx.run_until_parked();
         document.read_with(cx, |document, _| {
             assert_eq!(
-                token_at(
+                visible_token_at(
                     document,
                     DocumentSide::New,
                     document.text().line_to_byte(55) + 7
@@ -847,19 +870,27 @@ mod tests {
                 "     */\r\n    private static int live = 7;\r\n    /*\r\n",
                 cx,
             );
-            assert!(document.syntax_spans(DocumentSide::New).is_empty());
+            assert!(
+                document
+                    .syntax_spans(&viewport, DocumentSide::New)
+                    .is_empty()
+            );
         });
         scroll_to(cx, 66);
         cx.run_until_parked();
         document.read_with(cx, |document, _| {
             let text = document.text().to_string();
-            assert!(document.syntax_spans(DocumentSide::Base).is_empty());
+            assert!(
+                document
+                    .syntax_spans(&viewport, DocumentSide::Base)
+                    .is_empty()
+            );
             assert_eq!(
-                token_at(document, DocumentSide::New, text.find("static").unwrap()),
+                visible_token_at(document, DocumentSide::New, text.find("static").unwrap()),
                 Some(TokenRole::Keyword)
             );
             assert_eq!(
-                token_at(document, DocumentSide::New, text.find("café").unwrap()),
+                visible_token_at(document, DocumentSide::New, text.find("café").unwrap()),
                 None
             );
         });
@@ -888,11 +919,24 @@ mod tests {
             editor.set_document(Some(commit.clone()), cx);
         });
         cx.run_until_parked();
+        let commit_viewport = editor.read_with(cx, |editor, _| editor.syntax_viewport.clone());
+        document.read_with(cx, |document, _| {
+            assert!(
+                document
+                    .syntax_spans(&viewport, DocumentSide::New)
+                    .is_empty()
+            );
+        });
         commit.read_with(cx, |document, _| {
             let base = document.base_snapshot().rope().to_string();
             assert!(!document.is_editable());
             assert_eq!(
-                token_at(document, DocumentSide::Base, base.find("404").unwrap()),
+                token_at(
+                    document,
+                    &commit_viewport,
+                    DocumentSide::Base,
+                    base.find("404").unwrap()
+                ),
                 Some(TokenRole::Number)
             );
             assert!(!document.text().to_string().contains("static int live"));

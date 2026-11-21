@@ -37,11 +37,11 @@ their text stamps. Explicit path, filename and extension associations take prece
 over bundled recognition. Language results also depend on source context and registry
 configuration.
 
-The editor submits visible source ranges to `Document` after the list lays out. Each side
-queries the union of its editor viewports on GPUI's background executor. The document
-publishes tokens for the current input and notifies observers to repaint. Providers parse
-the full snapshot and reuse completed parse state when the source, provider selection and
-edit history match.
+The editor submits visible source ranges to `Document` after the list lays out. Each
+viewport has its own query budget and published spans. Queries run on GPUI's background
+executor and share one parser per side. Providers reuse a completed full-file parse when
+the source, provider selection and edit history match. The document notifies editors
+when results arrive and releases a viewport's work when its editor detaches.
 
 The editor composes each visible source row into a `DisplayLine`. Each styled part
 either covers source bytes or displays text at a single source offset. Both diff sides
