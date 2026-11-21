@@ -962,44 +962,63 @@ mod tests {
     }
 
     #[gpui::test]
-    fn syntax_keeps_coverage_for_two_live_viewports(cx: &mut TestAppContext) {
-        let text = "fn first() {}\nfn second() {}\nfn third() {}";
-        let (document, _) = sample(text, cx);
+    fn syntax_viewports_keep_separate_budgets_and_release_pending_work(cx: &mut TestAppContext) {
+        // Either range fits on its own, but together they exceed the provider's span budget.
+        const TOKENS: usize = 33_000;
+        let values = vec!["0"; TOKENS].join(",");
+        let text = format!("[{values},\n{values}\n]");
+        let (document, _) = sample(&text, cx);
         let first = SyntaxViewport::default();
         let second = SyntaxViewport::default();
         let side = DocumentSide::New;
-        let at = |line| {
-            let byte = text.match_indices("fn").nth(line).unwrap().0;
-            byte..byte + 2
-        };
+        let first_range = 1..1 + values.len();
+        let second_start = first_range.end + 2;
+        let second_range = second_start..second_start + values.len();
         document.update(cx, |document, cx| {
+            let mut registry = Registry::default();
+            registry
+                .associate(language::Association::Extension("rs".into()), "json")
+                .unwrap();
+            document.set_languages(Arc::new(registry), cx);
             document
-                .request_viewport_syntax(&first, side, vec![at(0)], cx)
+                .request_viewport_syntax(&first, side, vec![first_range.clone()], cx)
                 .unwrap();
             document
-                .request_viewport_syntax(&second, side, vec![at(2)], cx)
+                .request_viewport_syntax(&second, side, vec![second_range.clone()], cx)
                 .unwrap();
         });
         cx.run_until_parked();
-        let ranges = |document: &Document| {
-            document
-                .syntax_spans(side)
-                .iter()
-                .map(crate::TokenSpan::bytes)
-                .collect::<Vec<_>>()
-        };
+        let assert_coverage =
+            |document: &Document, viewport: &SyntaxViewport, range: &Range<usize>| {
+                let spans = document.syntax_spans(viewport, side);
+                assert_eq!(spans.len(), TOKENS);
+                assert_eq!(spans.first().unwrap().bytes().start, range.start);
+                assert_eq!(spans.last().unwrap().bytes().end, range.end);
+            };
         document.read_with(cx, |document, _| {
-            assert_eq!(ranges(document), [at(0), at(2)])
+            assert_coverage(document, &first, &first_range);
+            assert_coverage(document, &second, &second_range);
         });
 
-        drop(first);
         document.update(cx, |document, cx| {
+            let replacement = 1..2;
             document
-                .request_viewport_syntax(&second, side, vec![at(1)], cx)
+                .request_viewport_syntax(&first, side, vec![replacement], cx)
                 .unwrap();
+            document.release_syntax_viewport(&first);
+            assert!(document.syntax_spans(&first, side).is_empty());
+            assert_coverage(document, &second, &second_range);
         });
         cx.run_until_parked();
-        document.read_with(cx, |document, _| assert_eq!(ranges(document), [at(1)]));
+        document.read_with(cx, |document, _| {
+            assert!(document.syntax_spans(&first, side).is_empty());
+            assert!(!document.syntax_viewport_needs(
+                &second,
+                side,
+                std::slice::from_ref(&second_range)
+            ));
+            assert_coverage(document, &second, &second_range);
+        });
     }
 
     #[gpui::test]

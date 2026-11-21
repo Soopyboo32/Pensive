@@ -37,7 +37,12 @@ impl Editor {
         let word = |kind: LineKind| kind.hue(colors).map(|hue| hue.opacity(0.28));
         let display_line =
             |side, start, text: String, highlights: &[_], marked: Option<&Range<usize>>| {
-                let foregrounds = foregrounds(document.syntax_spans(side), start, &text, colors);
+                let foregrounds = foregrounds(
+                    document.syntax_spans(&self.syntax_viewport, side),
+                    start,
+                    &text,
+                    colors,
+                );
                 let styles = runs(
                     &text,
                     window.text_style().to_run(text.len()),
