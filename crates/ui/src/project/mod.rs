@@ -44,6 +44,8 @@ const CONTEXT: &str = "ProjectView";
 const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
 /// How long the tooltip says the path was copied before showing the path again.
 const COPIED_FOR: Duration = Duration::from_secs(1);
+/// The base's commits shown under the branch's until Expand, the last of them fading.
+const EARLIER_FOLDED: usize = 4;
 
 pub(crate) fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -147,6 +149,8 @@ pub struct ProjectView {
     worktree: PathBuf,
     layout: FileLayout,
     uncommitted_open: bool,
+    /// Whether every earlier commit read shows, rather than the first few.
+    earlier_expanded: bool,
     open_commit: Option<SharedString>,
     selected: Option<FileKey>,
     /// A symbol of the selected file, picked in the symbol layout.
@@ -195,6 +199,10 @@ impl ProjectView {
             .project(project)
             .map(|project| project.repository.root.clone())
             .unwrap_or_default();
+        // One more than shows, to tell whether there are more to expand.
+        projects.update(cx, |projects, cx| {
+            projects.set_earlier(worktree.clone(), EARLIER_FOLDED + 1, cx)
+        });
         if projects.read(cx).changes(&worktree).is_none() {
             // A failure leaves the timeline empty, and Projects reports it.
             projects
@@ -231,6 +239,7 @@ impl ProjectView {
             worktree,
             layout: FileLayout::List,
             uncommitted_open: true,
+            earlier_expanded: false,
             open_commit: None,
             selected: None,
             selected_symbol: None,
@@ -284,6 +293,21 @@ impl ProjectView {
 
     pub fn set_uncommitted_open(&mut self, open: bool, cx: &mut Context<Self>) {
         self.uncommitted_open = open;
+        cx.notify();
+    }
+
+    /// Shows every earlier commit, up to as many as Git lists, or folds them back to the first
+    /// few.
+    pub fn set_earlier_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
+        self.earlier_expanded = expanded;
+        let count = if expanded {
+            usize::MAX
+        } else {
+            EARLIER_FOLDED + 1
+        };
+        let worktree = self.worktree.clone();
+        self.projects
+            .update(cx, |projects, cx| projects.set_earlier(worktree, count, cx));
         cx.notify();
     }
 

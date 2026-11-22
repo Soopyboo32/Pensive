@@ -48,8 +48,8 @@ impl GitBackend for GitCli {
         })
     }
 
-    fn changes(&self, worktree: &Path) -> Result<Changes> {
-        changes::changes(self, worktree)
+    fn changes(&self, worktree: &Path, earlier: usize) -> Result<Changes> {
+        changes::changes(self, worktree, earlier)
     }
 
     fn versions(
@@ -212,7 +212,7 @@ mod tests {
         }
 
         fn changes(&self) -> Changes {
-            GitCli::from_env().changes(&self.path()).unwrap()
+            GitCli::from_env().changes(&self.path(), 0).unwrap()
         }
 
         fn versions(&self, key: &FileKey, renamed_from: Option<&Path>) -> FileVersions {
@@ -464,6 +464,29 @@ mod tests {
         let changes = repo.changes();
         assert_eq!(changes.uncommitted.len(), 1);
         assert_eq!(changes.uncommitted[0].worktree, Some(FileStatus::Untracked));
+    }
+
+    #[test]
+    fn earlier_commits_start_where_the_branch_left_its_base() {
+        let repo = Repo::new();
+        for title in ["first", "second", "third"] {
+            repo.commit_all_empty(title);
+        }
+        repo.run(&["checkout", "-q", "-b", "feat"]);
+        repo.commit_all_empty("on feat");
+        repo.run(&["checkout", "-q", "main"]);
+        repo.commit_all_empty("on main since");
+        repo.run(&["checkout", "-q", "feat"]);
+        let earlier = |count| -> Vec<String> {
+            let changes = GitCli::from_env().changes(&repo.path(), count).unwrap();
+            let titles = changes
+                .earlier
+                .iter()
+                .map(|commit| commit.title.to_string());
+            titles.collect()
+        };
+        assert_eq!(earlier(2), ["third", "second"]);
+        assert_eq!(earlier(usize::MAX), ["third", "second", "first"]);
     }
 
     #[test]

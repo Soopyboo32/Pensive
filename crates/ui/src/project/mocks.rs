@@ -38,6 +38,13 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
+        mock_window::mock("project", "earlier_expanded", |window, cx| {
+            framed(
+                |view, _, cx| view.set_earlier_expanded(true, cx),
+                window,
+                cx,
+            )
+        }),
         mock_window::mock("project", "hovering_a_file", |window, cx| {
             framed(|view, _, cx| view.show_path(1, cx), window, cx)
         }),

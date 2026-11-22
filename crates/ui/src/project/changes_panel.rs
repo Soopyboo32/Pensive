@@ -10,7 +10,7 @@ use model::{Changes, Commit, Staging, short_sha};
 use strum::VariantArray;
 use theme::{ActiveTheme, IconSize, Typeset, dp};
 
-use super::{Control, FileLayout, ProjectView, Source};
+use super::{Control, EARLIER_FOLDED, FileLayout, ProjectView, Source};
 use crate::{PANEL, notices, view_callback, view_callback_with};
 
 impl ProjectView {
@@ -41,13 +41,7 @@ impl ProjectView {
                     .overflow_y_scroll()
                     .child(self.uncommitted(changes, cx))
                     .children(self.uncommitted_files(changes, cx))
-                    .children(self.history(changes, cx))
-                    .child(
-                        TimelineRow::new()
-                            .h(dp(24.))
-                            .above(TimelineLine::Fade)
-                            .node_y(dp(24.)),
-                    ),
+                    .children(self.history(changes, cx)),
             )
             .child(self.commit_box(changes, cx))
     }
@@ -268,7 +262,8 @@ impl ProjectView {
         )
     }
 
-    /// HEAD, the branch's commits newest first, and origin where pushed work starts.
+    /// HEAD, the branch's commits newest first with origin where pushed work starts, then the
+    /// base's from before the branch, as the line fades out.
     fn history(&self, changes: &Changes, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut rows = vec![marker("HEAD", TimelineLine::Dashed, cx).into_any_element()];
         let mut origin_shown = changes.upstream.is_none();
@@ -283,12 +278,59 @@ impl ProjectView {
                 );
                 origin_shown = true;
             }
-            rows.push(self.commit_row(commit, cx));
+            rows.push(self.commit_row(commit, Era::Branch, cx));
+        }
+        let folded = !self.earlier_expanded;
+        let more = changes.earlier.len() > EARLIER_FOLDED;
+        let shown = if folded {
+            EARLIER_FOLDED
+        } else {
+            changes.earlier.len()
+        };
+        for (index, commit) in changes.earlier.iter().take(shown).enumerate() {
+            let era = if folded && more && index + 1 == shown {
+                Era::Fading
+            } else {
+                Era::Earlier
+            };
+            rows.push(self.commit_row(commit, era, cx));
+        }
+        // A fading commit already ends the line.
+        if !(folded && more) {
+            rows.push(
+                TimelineRow::new()
+                    .h(dp(24.))
+                    .above(TimelineLine::Fade)
+                    .node_y(dp(24.))
+                    .into_any_element(),
+            );
+        }
+        if more {
+            rows.push(self.earlier_toggle(cx));
         }
         rows
     }
 
-    fn commit_row(&self, commit: &Commit, cx: &mut Context<Self>) -> AnyElement {
+    /// Expand under the first few earlier commits, or Collapse under all of them.
+    fn earlier_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
+        let expanded = self.earlier_expanded;
+        TimelineRow::new()
+            .pt_1()
+            .pb_2()
+            .child(
+                div().ml_1().child(
+                    Button::new("earlier", if expanded { "Collapse" } else { "Expand" })
+                        .style(ButtonStyle::Outline)
+                        .small()
+                        .on_click(view_callback(cx, move |this: &mut Self, _, cx| {
+                            this.set_earlier_expanded(!expanded, cx)
+                        })),
+                ),
+            )
+            .into_any_element()
+    }
+
+    fn commit_row(&self, commit: &Commit, era: Era, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors.clone();
         let density = cx.density().clone();
         let open = self.open_commit.as_ref() == Some(&commit.sha);
@@ -310,10 +352,10 @@ impl ProjectView {
                 this.hover_commit(sha.clone(), *hovered, cx)
             }))
             .typeset(density.body)
-            .text_color(if commit.pushed {
-                colors.text_muted
-            } else {
-                colors.text
+            .text_color(match era {
+                Era::Branch if !commit.pushed => colors.text,
+                Era::Branch => colors.text_muted,
+                Era::Earlier | Era::Fading => colors.text_faint,
             })
             .map(|title| {
                 if open {
@@ -352,48 +394,51 @@ impl ProjectView {
                     .child(short_sha(&commit.sha).to_owned()),
             );
 
-        TimelineRow::new()
-            .line(TimelineLine::Solid)
-            .node(if open {
-                TimelineNode::Open
-            } else {
-                TimelineNode::Commit {
-                    pushed: commit.pushed,
-                }
-            })
-            .node_y(density.row_height / 2.)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .child(title)
-                    .when(open, |body| {
-                        body.children(commit.description.clone().map(|description| {
-                            div()
-                                .ml_1()
-                                .px_1()
-                                .pb_1p5()
-                                .typeset(density.small)
-                                .text_color(colors.text_muted)
-                                .child(description)
-                        }))
-                        .child(
-                            div()
-                                .id(SharedString::from(format!("{}-files", commit.sha)))
-                                .flex()
-                                .flex_col()
-                                .pb_2()
-                                .children(self.file_rows(
-                                    &Source::Commit(commit.sha.clone()),
-                                    &commit.files,
-                                    cx,
-                                )),
-                        )
-                    }),
-            )
-            .into_any_element()
+        let row = TimelineRow::new().line(TimelineLine::Solid);
+        let row = match era {
+            Era::Fading => row.below(TimelineLine::Fade).opacity(0.4),
+            Era::Branch | Era::Earlier => row,
+        };
+        row.node(match era {
+            _ if open => TimelineNode::Open,
+            Era::Branch => TimelineNode::Commit {
+                pushed: commit.pushed,
+            },
+            Era::Earlier | Era::Fading => TimelineNode::Older,
+        })
+        .node_y(density.row_height / 2.)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .child(title)
+                .when(open, |body| {
+                    body.children(commit.description.clone().map(|description| {
+                        div()
+                            .ml_1()
+                            .px_1()
+                            .pb_1p5()
+                            .typeset(density.small)
+                            .text_color(colors.text_muted)
+                            .child(description)
+                    }))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("{}-files", commit.sha)))
+                            .flex()
+                            .flex_col()
+                            .pb_2()
+                            .children(self.file_rows(
+                                &Source::Commit(commit.sha.clone()),
+                                &commit.files,
+                                cx,
+                            )),
+                    )
+                }),
+        )
+        .into_any_element()
     }
 
     /// The message box and the Commit button, which stays on screen however long the list gets.
@@ -442,6 +487,17 @@ impl ProjectView {
                 ),
             )
     }
+}
+
+/// Where a commit sits on the timeline, which sets how it's drawn.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Era {
+    /// The branch's own.
+    Branch,
+    /// The base's, from before the branch started.
+    Earlier,
+    /// The last earlier commit shown while more are folded away.
+    Fading,
 }
 
 /// A tick on the line with a label, such as HEAD where committed work starts.

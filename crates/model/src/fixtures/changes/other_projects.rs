@@ -81,6 +81,7 @@ pub(super) fn harbor() -> WorktreeSamples {
                 "pub const STEPS: [f32; 3] = [1.0, 1.25, 1.5];",
             ]),
         ],
+        earlier: Vec::new(),
         commits: vec![
             SampleCommit::new(
                 "a3f19c2",
@@ -162,6 +163,7 @@ pub(super) fn lantern() -> WorktreeSamples {
                 .symbol(SymbolKind::Type, "Queue", (3, 0))
                 .added(&["pub struct Queue {", "    workers: usize,", "}"]),
         ],
+        earlier: Vec::new(),
         commits: vec![
             SampleCommit::new(
                 "c41d8e0",
@@ -237,6 +239,7 @@ pub(super) fn glyph_ui() -> WorktreeSamples {
                 (' ', "}"),
             ]),
         ],
+        earlier: Vec::new(),
         commits: vec![
             SampleCommit::new(
                 "d27e6b1",
@@ -300,6 +303,7 @@ pub(super) fn dotfiles() -> WorktreeSamples {
                 ('+', "alias gs='git status --short'"),
             ]),
         ],
+        earlier: Vec::new(),
         commits: vec![
             SampleCommit::new(
                 "e5c90aa",
@@ -362,6 +366,7 @@ pub(super) fn zed() -> WorktreeSamples {
                 ('+', "The cursor stops blinking while you type."),
             ]),
         ],
+        earlier: Vec::new(),
         commits: vec![
             SampleCommit::new(
                 "8ac2e14",

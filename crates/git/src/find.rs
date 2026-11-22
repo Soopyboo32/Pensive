@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(error.downcast_ref(), Some(&GitProblem::Missing));
 
         let broken = GitCli::looking_in(vec![broken_git(folder.path())]);
-        let error = broken.changes(folder.path()).unwrap_err();
+        let error = broken.changes(folder.path(), 0).unwrap_err();
         assert!(
             matches!(error.downcast_ref(), Some(GitProblem::Broken { .. })),
             "{error:#}"
