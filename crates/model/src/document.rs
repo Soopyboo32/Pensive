@@ -578,10 +578,6 @@ impl Document {
         }
     }
 
-    fn disk_stamp(&self) -> usize {
-        self.disk_generation
-    }
-
     fn advance_refresh_generation(&mut self) {
         self.refresh_generation = self
             .refresh_generation
