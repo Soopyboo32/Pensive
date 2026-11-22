@@ -27,7 +27,7 @@ pub(crate) enum Listed {
 }
 
 /// The commands available with this project open, or on the landing screen without one. Most
-/// run nothing yet: each feature wires up its command as it lands.
+/// answer with a notice until their feature lands.
 pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Command)> {
     let command = |icon, name: &str, kbd, group, action| Command {
         icon,
@@ -56,7 +56,7 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                     &format!("Merge into {branch}…"),
                     None,
                     "Git",
-                    Action::None,
+                    Action::NotWired("Merge"),
                 ),
             ),
             (
@@ -66,20 +66,38 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                     "Commit…",
                     None,
                     "Git",
-                    Action::None,
+                    Action::NotWired("Commit"),
                 ),
             ),
             (
                 Listed::Tab,
-                command(IconName::RefreshCw, "Fetch", None, "Git", Action::None),
+                command(
+                    IconName::RefreshCw,
+                    "Fetch",
+                    None,
+                    "Git",
+                    Action::NotWired("Fetch"),
+                ),
             ),
             (
                 Listed::Tab,
-                command(IconName::ArrowDownToLine, "Pull", None, "Git", Action::None),
+                command(
+                    IconName::ArrowDownToLine,
+                    "Pull",
+                    None,
+                    "Git",
+                    Action::NotWired("Pull"),
+                ),
             ),
             (
                 Listed::Tab,
-                command(IconName::ArrowUpFromLine, "Push", None, "Git", Action::None),
+                command(
+                    IconName::ArrowUpFromLine,
+                    "Push",
+                    None,
+                    "Git",
+                    Action::NotWired("Push"),
+                ),
             ),
             (
                 Listed::Tab,
@@ -88,7 +106,7 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                     "Stash changes",
                     None,
                     "Git",
-                    Action::None,
+                    Action::NotWired("Stash"),
                 ),
             ),
             (
@@ -98,7 +116,7 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                     "New worktree…",
                     None,
                     "Git",
-                    Action::None,
+                    Action::NotWired("New worktree"),
                 ),
             ),
         ]);
@@ -116,7 +134,7 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                 "Open folder…",
                 Some("Ctrl O"),
                 "Projects",
-                Action::None,
+                Action::OpenFolder,
             ),
         ),
         (
@@ -130,7 +148,7 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                 "Clone repository…",
                 Some("Ctrl Shift O"),
                 "Projects",
-                Action::None,
+                Action::NotWired("Clone"),
             ),
         ),
         (
@@ -140,7 +158,7 @@ pub(crate) fn commands(current_branch: Option<&SharedString>) -> Vec<(Listed, Co
                 "New repository…",
                 None,
                 "Projects",
-                Action::None,
+                Action::NotWired("New repository"),
             ),
         ),
         (

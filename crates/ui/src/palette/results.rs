@@ -217,7 +217,7 @@ fn in_project(query: &Query, id: ProjectId) -> Results {
         entry: PaletteEntry::new(format!("Create branch {} in {name}", query.text))
             .icon(IconName::Plus)
             .kbd("Ctrl N"),
-        action: Action::None,
+        action: Action::NotWired("Create branch"),
         secondary: Action::None,
         narrow: None,
     });
@@ -376,8 +376,8 @@ fn clone(query: &Query, repo: Repo) -> Results {
                 KeyHint::new("Enter", "Clone"),
                 KeyHint::new("Ctrl Enter", "Clone into…"),
             ]),
-        action: Action::None,
-        secondary: Action::None,
+        action: Action::NotWired("Clone"),
+        secondary: Action::NotWired("Clone into a folder"),
         narrow: None,
     };
     let on_disk = query

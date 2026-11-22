@@ -387,12 +387,15 @@ impl RenderOnce for CommandPalette {
                     .child({
                         let gear = IconButton::new("settings", IconName::Settings)
                             .color(|colors| colors.text_faint);
-                        match self.on_settings {
+                        let gear = match self.on_settings {
                             Some(handler) => {
                                 gear.on_click(move |window, cx| handler((), window, cx))
                             }
                             None => gear,
-                        }
+                        };
+                        div()
+                            .debug_selector(|| "palette-settings".into())
+                            .child(gear)
                     }),
             )
     }

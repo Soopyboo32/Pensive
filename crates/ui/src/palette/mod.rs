@@ -10,14 +10,14 @@ use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle, Subscription, Window,
     actions, div, prelude::*,
 };
-use model::{ProjectId, Projects};
+use model::{Notice, Notices, ProjectId, Projects};
 use serde::{Deserialize, Serialize};
 use settings::{AnySetting, ControlState, Settings};
 
 use crate::{
     key_binding, text_editing,
     text_input::{Changed, TextInput},
-    view_callback_with,
+    view_callback, view_callback_with,
 };
 pub(crate) use options::{CATEGORY, OPEN_ON, declare as declare_settings, scrim};
 use results::{Query, Results, SettingRow, results};
@@ -121,7 +121,10 @@ pub(crate) enum Action {
     /// Flips the setting with this key, or moves it to its next choice.
     Step(&'static str),
     OpenSettings,
-    /// Not wired up yet.
+    OpenFolder,
+    /// Closes the palette on a notice that this, such as "Push", isn't wired up yet.
+    NotWired(&'static str),
+    /// Nothing, for a row with no second action.
     None,
 }
 
@@ -130,7 +133,11 @@ pub enum PaletteEvent {
         project: ProjectId,
         new_window: bool,
     },
-    OpenSettings,
+    /// Opens Settings, on `category` when it names one.
+    OpenSettings {
+        category: Option<&'static settings::Category>,
+    },
+    OpenFolder,
     Dismiss,
 }
 
@@ -342,7 +349,13 @@ impl PaletteView {
             }
             Action::ClearKeyword => self.set_keyword(None, cx),
             Action::Step(key) => self.step_setting(key, 1, cx),
-            Action::OpenSettings => cx.emit(PaletteEvent::OpenSettings),
+            Action::OpenSettings => cx.emit(PaletteEvent::OpenSettings { category: None }),
+            Action::OpenFolder => cx.emit(PaletteEvent::OpenFolder),
+            // The palette's scrim would cover the toast, so it closes.
+            Action::NotWired(what) => {
+                Notices::post(Notice::not_wired(what), cx);
+                cx.emit(PaletteEvent::Dismiss);
+            }
             Action::None => {}
         }
     }
@@ -465,7 +478,12 @@ impl Render for PaletteView {
             .scroll(self.scroll.clone())
             .tabs(tabs.iter().copied(), tab)
             .on_tab(on_tab)
-            .on_activate(on_activate);
+            .on_activate(on_activate)
+            .on_settings(view_callback(cx, |_: &mut Self, _, cx| {
+                cx.emit(PaletteEvent::OpenSettings {
+                    category: Some(&CATEGORY),
+                })
+            }));
         if let Some(chip) = chip {
             palette = palette.chip(chip);
         }
