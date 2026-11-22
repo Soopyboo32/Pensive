@@ -97,6 +97,8 @@ pub struct Projects {
     staging: Queue,
     /// How many reads of each worktree's changes have started.
     reads: HashMap<PathBuf, u64>,
+    /// How many of the base's commits each worktree's changes are read with. None until asked.
+    earlier: HashMap<PathBuf, usize>,
     /// Each worktree's files, by its path, once read.
     files: HashMap<PathBuf, WorktreeFiles>,
     /// Each project's run configurations, once read.
@@ -118,6 +120,7 @@ impl Projects {
             git: Backend::new(git, Origin::Git),
             staging: Queue::default(),
             reads: HashMap::new(),
+            earlier: HashMap::new(),
             files: HashMap::new(),
             run_configs: HashMap::new(),
             _saves: Vec::new(),
@@ -248,9 +251,12 @@ impl Projects {
     pub fn read_changes(&mut self, worktree: PathBuf, cx: &mut Context<Self>) -> Task<Result<()>> {
         let number = self.start_read(&worktree);
         let path = worktree.clone();
-        let read = self
-            .git
-            .call("Couldn't read changes", move |git| git.changes(&path), cx);
+        let earlier = self.earlier.get(&worktree).copied().unwrap_or(0);
+        let read = self.git.call(
+            "Couldn't read changes",
+            move |git| git.changes(&path, earlier),
+            cx,
+        );
         cx.spawn(async move |this, cx| {
             let changes = read.await?;
             this.update(cx, |this, cx| {
@@ -260,6 +266,23 @@ impl Projects {
                 }
             })
         })
+    }
+
+    /// Reads the changes in the worktree at `worktree` with `count` of the base's commits from
+    /// where the branch started, from now on. They're read again only when that's more than
+    /// before: with fewer, the extra ones stay until the next read.
+    pub fn set_earlier(&mut self, worktree: PathBuf, count: usize, cx: &mut Context<Self>) {
+        if self.want_earlier(worktree.clone(), count) && self.changes.contains_key(&worktree) {
+            // A failure leaves the earlier commits as they were, and is reported.
+            self.read_changes(worktree, cx).detach();
+        }
+    }
+
+    /// Notes that reads of `worktree` want `count` earlier commits, and returns whether that's
+    /// more than before.
+    pub(crate) fn want_earlier(&mut self, worktree: PathBuf, count: usize) -> bool {
+        let before = self.earlier.insert(worktree, count).unwrap_or(0);
+        count > before
     }
 
     /// Counts a read of the worktree's changes, and returns its number.
@@ -821,6 +844,28 @@ mod tests {
                 "rust"
             );
         });
+    }
+
+    #[gpui::test]
+    async fn asking_for_more_earlier_commits_reads_again_but_fewer_doesnt(cx: &mut TestAppContext) {
+        let projects = cx.new(|_| Projects::new(Arc::new(FakeGit::default())));
+        let root = PathBuf::from(fixtures::PENSIVE_ROOT);
+        let earlier = |count, cx: &mut TestAppContext| {
+            projects.update(cx, |projects, cx| {
+                projects.set_earlier(root.clone(), count, cx)
+            });
+            cx.run_until_parked();
+            projects.read_with(cx, |projects, _| {
+                projects.changes(&root).map(|changes| changes.earlier.len())
+            })
+        };
+        assert_eq!(earlier(2, cx), None, "nothing reads before the changes do");
+        let read = projects.update(cx, |projects, cx| projects.read_changes(root.clone(), cx));
+        read.await.unwrap();
+        assert_eq!(earlier(2, cx), Some(2));
+        let all = earlier(usize::MAX, cx).unwrap();
+        assert!(all > 2);
+        assert_eq!(earlier(2, cx), Some(all));
     }
 
     #[gpui::test]

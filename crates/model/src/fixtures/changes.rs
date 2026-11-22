@@ -105,6 +105,8 @@ struct WorktreeSamples {
     base: Option<Base>,
     upstream: Option<Upstream>,
     uncommitted: Vec<Sample>,
+    /// The base's commits from where the branch started, newest first.
+    earlier: Vec<SampleCommit>,
     commits: Vec<SampleCommit>,
 }
 
@@ -112,18 +114,21 @@ impl WorktreeSamples {
     fn changes(self) -> Changes {
         let changes =
             |samples: Vec<Sample>| samples.into_iter().map(|sample| sample.change).collect();
-        Changes {
-            base: self.base,
-            upstream: self.upstream,
-            uncommitted: changes(self.uncommitted),
-            commits: self
-                .commits
+        let commits = |samples: Vec<SampleCommit>| {
+            samples
                 .into_iter()
                 .map(|SampleCommit { commit, files }| Commit {
                     files: changes(files),
                     ..commit
                 })
-                .collect(),
+                .collect()
+        };
+        Changes {
+            base: self.base,
+            upstream: self.upstream,
+            uncommitted: changes(self.uncommitted),
+            commits: commits(self.commits),
+            earlier: commits(self.earlier),
         }
     }
 }
@@ -202,6 +207,39 @@ fn pensive() -> WorktreeSamples {
         base: base("master"),
         upstream: origin(1),
         uncommitted: uncommitted(),
+        earlier: [
+            (
+                "532d38b",
+                "Merge pull request #84 from feat/shared-tree-row",
+            ),
+            (
+                "7edb2ff",
+                "refactor: one tree row for the Changes and Files panels",
+            ),
+            (
+                "35b32bc",
+                "refactor: one tree builder for the Changes and Files panels",
+            ),
+            (
+                "7b1f208",
+                "Merge pull request #82 from feat/zoom-and-code-size",
+            ),
+            (
+                "a14c0de",
+                "feat: zoom the whole window, and size code apart from it",
+            ),
+            (
+                "3f9e21b",
+                "feat: save open files a second after typing stops",
+            ),
+            (
+                "c07d5a4",
+                "fix: keep the caret in view while typing at the end",
+            ),
+        ]
+        .into_iter()
+        .map(|(sha, title)| SampleCommit::new(sha, title, true, Vec::new()))
+        .collect(),
         commits: vec![
             SampleCommit::new(
                 OPEN_PALETTE,

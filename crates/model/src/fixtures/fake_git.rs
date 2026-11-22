@@ -92,12 +92,13 @@ impl GitBackend for FakeGit {
     }
 
     /// The sample changes in a main worktree, as staged since, and none in a linked worktree.
-    fn changes(&self, worktree: &Path) -> Result<Changes> {
+    fn changes(&self, worktree: &Path, earlier: usize) -> Result<Changes> {
         self.repository(worktree)?;
         let samples = changes::changes_in(worktree).filter(|_| self.sample_changes);
         let Some(mut changes) = samples else {
             return Ok(Changes::default());
         };
+        changes.earlier.truncate(earlier);
         // Git lists an unstaged rename as its old path deleted and its new path untracked. This
         // keeps it one renamed file.
         for ((root, path), staged) in self.staged.lock().expect("not poisoned").iter() {
@@ -208,7 +209,7 @@ mod tests {
     fn every_sample_project_has_changes_with_versions() {
         let git = FakeGit::default();
         for root in roots() {
-            let changes = git.changes(&root).unwrap();
+            let changes = git.changes(&root, 0).unwrap();
             let name = root.display();
             assert!(!changes.uncommitted.is_empty(), "{name} has no files");
             assert!(!changes.commits.is_empty(), "{name} has no commits");
@@ -233,7 +234,9 @@ mod tests {
 
     #[test]
     fn harbor_has_a_renamed_and_a_conflicted_file() {
-        let changes = FakeGit::default().changes(Path::new(HARBOR_ROOT)).unwrap();
+        let changes = FakeGit::default()
+            .changes(Path::new(HARBOR_ROOT), 0)
+            .unwrap();
         let has = |status| {
             changes
                 .uncommitted
@@ -248,7 +251,7 @@ mod tests {
     fn clean_has_no_changes_in_any_project() {
         let git = FakeGit::clean();
         for root in roots() {
-            let changes = git.changes(&root).unwrap();
+            let changes = git.changes(&root, 0).unwrap();
             assert!(changes.uncommitted.is_empty() && changes.commits.is_empty());
         }
     }
@@ -257,7 +260,7 @@ mod tests {
     fn saved_files_and_staging_stay_in_their_worktree() {
         let git = FakeGit::default();
         let (harbor, lantern) = (Path::new(HARBOR_ROOT), Path::new("~/code/lantern"));
-        let path = git.changes(harbor).unwrap().uncommitted[0].path.clone();
+        let path = git.changes(harbor, 0).unwrap().uncommitted[0].path.clone();
 
         git.write_file(lantern, &path, "lantern's\n").unwrap();
         git.set_staged(lantern, std::slice::from_ref(&path), true)
@@ -267,7 +270,7 @@ mod tests {
             git.read_file(harbor, &path).unwrap(),
             Version::Text("lantern's\n".into())
         );
-        let file = git.changes(harbor).unwrap();
+        let file = git.changes(harbor, 0).unwrap();
         assert_eq!(
             file.file(&path).unwrap().staging(),
             crate::Staging::Unstaged

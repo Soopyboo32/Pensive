@@ -39,7 +39,10 @@ pub fn projects() -> Projects {
     let samples = FakeGit::default();
     for (repository, _) in repositories() {
         let root = repository.root;
-        let changes = samples.changes(&root).expect("a sample repository");
+        let changes = samples
+            .changes(&root, usize::MAX)
+            .expect("a sample repository");
+        projects.want_earlier(root.clone(), usize::MAX);
         let files = samples.files(&root).expect("a sample repository");
         projects.insert_changes(root.clone(), changes);
         projects.insert_files(root, files);

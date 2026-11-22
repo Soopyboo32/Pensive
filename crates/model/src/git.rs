@@ -15,8 +15,9 @@ pub trait GitBackend: Send + Sync + Debug {
     fn repository(&self, path: &Path) -> Result<Repository>;
 
     /// Reads the uncommitted changes and the branch's commits in the worktree at `worktree`, with
-    /// each file's line counts but not its lines.
-    fn changes(&self, worktree: &Path) -> Result<Changes>;
+    /// each file's line counts but not its lines, then up to `earlier` of the base's commits from
+    /// where the branch started.
+    fn changes(&self, worktree: &Path, earlier: usize) -> Result<Changes>;
 
     /// Reads both versions of the file `key` names. The old version is read at `renamed_from`
     /// when that's given, and at `key.path` otherwise, where a renamed file has none.

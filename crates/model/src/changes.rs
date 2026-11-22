@@ -164,6 +164,9 @@ pub struct Changes {
     pub uncommitted: Vec<FileChange>,
     /// The branch's own commits since its base, newest first.
     pub commits: Vec<Commit>,
+    /// The base's commits from where the branch started, newest first, as many as were asked
+    /// for.
+    pub earlier: Vec<Commit>,
 }
 
 impl Changes {
@@ -215,7 +218,10 @@ impl Changes {
     }
 
     pub fn commit(&self, sha: &str) -> Option<&Commit> {
-        self.commits.iter().find(|commit| commit.sha == sha)
+        self.commits
+            .iter()
+            .chain(&self.earlier)
+            .find(|commit| commit.sha == sha)
     }
 
     /// The file `key` names, in the uncommitted list or its commit.
