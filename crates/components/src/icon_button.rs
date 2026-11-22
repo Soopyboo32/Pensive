@@ -1,9 +1,9 @@
 //! A square button that shows only an icon.
 
-use gpui::{App, ElementId, Window, div, prelude::*};
+use gpui::{App, ElementId, SharedString, Window, div, prelude::*};
 use theme::{ActiveTheme, ColorRole, Dp, IconSize, dp};
 
-use crate::{Callback, Icon, IconName, OnClick as _, callback};
+use crate::{Callback, Icon, IconName, OnClick as _, callback, tooltip::text_tooltip};
 
 #[derive(IntoElement)]
 pub struct IconButton {
@@ -11,6 +11,8 @@ pub struct IconButton {
     icon: IconName,
     size: Dp,
     color: ColorRole,
+    hover_fill: ColorRole,
+    tooltip: Option<SharedString>,
     on_click: Option<Callback<()>>,
 }
 
@@ -22,6 +24,8 @@ impl IconButton {
             icon,
             size: dp(24.),
             color: |colors| colors.text_muted,
+            hover_fill: |colors| colors.surface_raised,
+            tooltip: None,
             on_click: None,
         }
     }
@@ -38,6 +42,18 @@ impl IconButton {
         self
     }
 
+    /// The fill under the pointer, `surface_raised` by default. A button on a raised surface
+    /// needs a step above it.
+    pub fn hover_fill(mut self, fill: ColorRole) -> Self {
+        self.hover_fill = fill;
+        self
+    }
+
+    pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(text.into());
+        self
+    }
+
     pub fn on_click(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(callback(handler));
         self
@@ -47,7 +63,7 @@ impl IconButton {
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = &cx.theme().colors;
-        let hover = colors.surface_raised;
+        let hover = (self.hover_fill)(colors);
         div()
             .id(self.id)
             .flex()
@@ -62,6 +78,9 @@ impl RenderOnce for IconButton {
                     .size(IconSize::Medium)
                     .color((self.color)(colors)),
             )
+            .when_some(self.tooltip, |button, text| {
+                button.tooltip(text_tooltip(text))
+            })
             .on_click_callback(self.on_click)
     }
 }
