@@ -409,6 +409,27 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// Shows `category` from its top at once, as opening Settings from a control that names it
+    /// does.
+    pub(crate) fn jump_to_category(
+        &mut self,
+        category: &settings::Category,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(category) = outline(cx)
+            .iter()
+            .position(|known| known.name == category.name())
+        else {
+            return;
+        };
+        let spot = Spot { category, page: 0 };
+        if self.search_from.is_some() {
+            self.show_after_search(spot, None, cx);
+        } else {
+            self.jump_to(spot, None, cx);
+        }
+    }
+
     fn show_page(&mut self, spot: Spot, cx: &mut Context<Self>) {
         self.scroll_to_page(spot, true, cx);
     }
@@ -850,6 +871,30 @@ mod tests {
 
     fn current(view: &Entity<SettingsView>, cx: &mut VisualTestContext) -> Spot {
         view.read_with(cx, |view, _| view.current)
+    }
+
+    #[gpui::test]
+    fn the_palettes_gear_opens_the_palettes_settings(cx: &mut TestAppContext) {
+        let (root, cx) = pensive_window(cx);
+        cx.dispatch_action(crate::root::OpenPalette);
+        cx.run_until_parked();
+        let gear = cx.debug_bounds("palette-settings").unwrap();
+        cx.simulate_click(gear.center(), Modifiers::none());
+        settle(cx);
+        let view = root.read_with(cx, |pensive, _| pensive.settings_view().unwrap());
+        let palette = view.update(cx, |_, cx| {
+            outline(cx)
+                .iter()
+                .position(|category| category.name == crate::palette::CATEGORY.name())
+                .unwrap()
+        });
+        assert_eq!(
+            current(&view, cx),
+            Spot {
+                category: palette,
+                page: 0
+            }
+        );
     }
 
     #[gpui::test]
