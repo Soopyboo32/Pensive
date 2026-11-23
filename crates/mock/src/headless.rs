@@ -1,6 +1,9 @@
 //! Draws a view on the headless renderer and captures it, without opening a window.
 
-use std::{cell::Cell, sync::Arc};
+use std::{
+    cell::Cell,
+    sync::{Arc, OnceLock},
+};
 
 use gpui::{
     AnyView, App, Context, Entity, HeadlessAppContext, IntoElement, Pixels,
@@ -40,13 +43,14 @@ impl Render for Frame {
     }
 }
 
-/// Built once per thread, because each platform built just for its text system leaks threads.
+/// Built once and shared by every thread, because each platform built just for its text system
+/// starts threads of its own and leaks them. macOS can build a platform only on the main thread,
+/// so `render_mocks` renders only on that thread there.
 fn text_system() -> Arc<dyn PlatformTextSystem> {
-    thread_local! {
-        static TEXT_SYSTEM: Arc<dyn PlatformTextSystem> =
-            gpui_platform::current_platform(true).text_system();
-    }
-    TEXT_SYSTEM.with(Arc::clone)
+    static TEXT_SYSTEM: OnceLock<Arc<dyn PlatformTextSystem>> = OnceLock::new();
+    TEXT_SYSTEM
+        .get_or_init(|| gpui_platform::current_platform(true).text_system())
+        .clone()
 }
 
 #[cfg(not(target_os = "windows"))]

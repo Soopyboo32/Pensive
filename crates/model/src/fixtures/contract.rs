@@ -17,6 +17,7 @@ pub fn git(backend: &dyn GitBackend, worktree: &Path) {
     a_written_file_reads_back(backend, worktree);
     uncommitted_versions_match_the_files(backend, worktree);
     commit_versions_match_the_changes(backend, worktree);
+    earlier_commits_stop_at_the_count(backend, worktree);
     staging_shows_in_the_changes(backend, worktree);
     files_are_what_is_on_disk(backend, worktree);
 }
@@ -44,7 +45,7 @@ fn lists_the_main_worktree_first(backend: &dyn GitBackend, worktree: &Path) {
 }
 
 fn a_written_file_reads_back(backend: &dyn GitBackend, worktree: &Path) {
-    let uncommitted = backend.changes(worktree).unwrap().uncommitted;
+    let uncommitted = backend.changes(worktree, 0).unwrap().uncommitted;
     let modified = find(&uncommitted, &[FileStatus::Modified], "a modified file");
     let text = "written by the contract\n";
     backend.write_file(worktree, &modified.path, text).unwrap();
@@ -56,7 +57,7 @@ fn a_written_file_reads_back(backend: &dyn GitBackend, worktree: &Path) {
 
 /// An uncommitted file's new version is the file as it is on disk.
 fn uncommitted_versions_match_the_files(backend: &dyn GitBackend, worktree: &Path) {
-    let uncommitted = backend.changes(worktree).unwrap().uncommitted;
+    let uncommitted = backend.changes(worktree, 0).unwrap().uncommitted;
     find(
         &uncommitted,
         &[FileStatus::Added, FileStatus::Untracked],
@@ -72,7 +73,7 @@ fn uncommitted_versions_match_the_files(backend: &dyn GitBackend, worktree: &Pat
 }
 
 fn commit_versions_match_the_changes(backend: &dyn GitBackend, worktree: &Path) {
-    let commits = backend.changes(worktree).unwrap().commits;
+    let commits = backend.changes(worktree, 0).unwrap().commits;
     let files = || commits.iter().flat_map(|commit| &commit.files);
     find(
         files(),
@@ -91,14 +92,33 @@ fn commit_versions_match_the_changes(backend: &dyn GitBackend, worktree: &Path) 
     }
 }
 
+/// Asking for fewer of the base's commits gives the newest of them, none of them the branch's own.
+fn earlier_commits_stop_at_the_count(backend: &dyn GitBackend, worktree: &Path) {
+    let shas = |count| -> Vec<_> {
+        let changes = backend.changes(worktree, count).unwrap();
+        for commit in &changes.earlier {
+            let own = changes.commits.iter().any(|own| own.sha == commit.sha);
+            assert!(!own, "{} is the branch's own", commit.sha);
+        }
+        changes
+            .earlier
+            .into_iter()
+            .map(|commit| commit.sha)
+            .collect()
+    };
+    let all = shas(usize::MAX);
+    assert_eq!(shas(2), all[..all.len().min(2)]);
+    assert!(shas(0).is_empty());
+}
+
 /// Staging all of the files, none of them, then one, shows that way when the changes are read.
 fn staging_shows_in_the_changes(backend: &dyn GitBackend, worktree: &Path) {
     let set_staged = |files: &[FileChange], staged| {
         let paths = paths(files, staged);
         backend.set_staged(worktree, &paths, staged).unwrap();
-        backend.changes(worktree).unwrap().uncommitted
+        backend.changes(worktree, 0).unwrap().uncommitted
     };
-    let uncommitted = backend.changes(worktree).unwrap().uncommitted;
+    let uncommitted = backend.changes(worktree, 0).unwrap().uncommitted;
 
     let uncommitted = set_staged(&uncommitted, true);
     assert_staged(&uncommitted, |_| true);
@@ -230,7 +250,7 @@ fn written_settings_read_back(backend: &dyn ConfigBackend) {
 /// Every uncommitted file on disk is listed, and a deleted one isn't.
 fn files_are_what_is_on_disk(backend: &dyn GitBackend, worktree: &Path) {
     let listed = backend.files(worktree).unwrap();
-    for file in backend.changes(worktree).unwrap().uncommitted {
+    for file in backend.changes(worktree, 0).unwrap().uncommitted {
         let deleted = [file.index, file.worktree].contains(&Some(FileStatus::Deleted));
         assert_eq!(
             listed.files.contains(&file.path),

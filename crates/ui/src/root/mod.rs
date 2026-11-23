@@ -7,14 +7,14 @@ mod mocks;
 
 use components::{RunAction, RunButton, RunChoice, TitleBar, TitleBarProject};
 use gpui::{
-    App, Bounds, Context, DisplayId, Entity, FocusHandle, Focusable, MouseButton, Pixels, Size,
-    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowDecorations, WindowOptions,
-    actions, div, prelude::*, px, size, svg,
+    App, Bounds, Context, DisplayId, Entity, FocusHandle, Focusable, MouseButton,
+    PathPromptOptions, Pixels, Size, Subscription, Task, TitlebarOptions, Window, WindowBounds,
+    WindowDecorations, WindowOptions, actions, div, prelude::*, px, size, svg,
 };
 #[cfg(feature = "mocks")]
 pub(crate) use mocks::mocks;
-use model::{Notice, ProjectId, Projects};
-use theme::{ActiveTheme, Typeset, dp};
+use model::{Notice, Notices, Origin, ProjectId, Projects};
+use theme::{ActiveTheme, Dp, Typeset, dp};
 
 #[cfg(feature = "mocks")]
 use crate::mock_browser::{MockBrowser, MockBrowserEvent, MockMode, ViewMocks};
@@ -36,6 +36,8 @@ actions!(
         OpenActive,
         ClosePalette,
         OpenSettings,
+        OpenFolder,
+        SwitchBranch,
         ZoomIn,
         ZoomOut,
         ResetZoom
@@ -51,6 +53,8 @@ pub(crate) fn bind_keys(cx: &mut App) {
         key_binding("secondary-k", OpenPalette, None, cx),
         key_binding("secondary-shift-k", OpenActive, None, cx),
         key_binding("secondary-,", OpenSettings, None, cx),
+        key_binding("secondary-o", OpenFolder, None, cx),
+        key_binding("secondary-b", SwitchBranch, None, cx),
         key_binding("secondary-=", ZoomIn, None, cx),
         key_binding("secondary--", ZoomOut, None, cx),
         key_binding("secondary-0", ResetZoom, None, cx),
@@ -222,6 +226,46 @@ impl Pensive {
         cx.notify();
     }
 
+    /// Asks for a folder, then shows the repository it's in. A folder outside any repository
+    /// leaves the window as it was, and Projects reports why.
+    fn open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Open".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let path = match picked.await {
+                Ok(Ok(paths)) => paths.and_then(|paths| paths.into_iter().next()),
+                Ok(Err(error)) => {
+                    let notice = Notice::failed("Couldn't ask for a folder", Origin::Ui, &error);
+                    cx.update(|_, cx| Notices::post(notice, cx)).ok();
+                    None
+                }
+                // The dialog went away without an answer.
+                Err(_) => None,
+            };
+            let Some(path) = path else {
+                return;
+            };
+            let Ok(opened) = this.update(cx, |this, cx| {
+                this.projects
+                    .update(cx, |projects, cx| projects.open(path, cx))
+            }) else {
+                return;
+            };
+            if let Ok(project) = opened.await {
+                this.update_in(cx, |this, window, cx| {
+                    this.show_project(project, window, cx);
+                    this.close_palette(window, cx);
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
     fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.project.is_none() {
             return;
@@ -259,7 +303,16 @@ impl Pensive {
                 self.show_project(project, window, cx);
                 self.close_palette(window, cx);
             }
-            PaletteEvent::OpenSettings => self.open_settings(window, cx),
+            PaletteEvent::OpenSettings { category } => {
+                self.open_settings(window, cx);
+                if let (Some(category), Some((view, _))) = (category, &self.settings) {
+                    view.update(cx, |view, cx| view.jump_to_category(category, cx));
+                }
+            }
+            PaletteEvent::OpenFolder => {
+                self.close_palette(window, cx);
+                self.open_folder(window, cx);
+            }
             PaletteEvent::Dismiss => self.close_palette(window, cx),
         }
     }
@@ -429,6 +482,18 @@ impl Pensive {
             ))
     }
 
+    /// The palette at a fixed height, so centering it keeps the search field still as results
+    /// change.
+    fn palette_slot(&self) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .h(PALETTE_HEIGHT)
+            .debug_selector(|| "palette".into())
+            .child(self.palette.clone())
+    }
+
     fn landing(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let density = cx.density();
@@ -437,9 +502,9 @@ impl Pensive {
             .flex()
             .flex_col()
             .items_center()
+            .justify_center()
             .gap_4()
-            .pt_12()
-            .pb_8()
+            .py_8()
             .child(
                 svg()
                     .path("logo.svg")
@@ -448,7 +513,7 @@ impl Pensive {
                     .mb_2()
                     .text_color(theme.colors.text_strong),
             )
-            .child(self.palette.clone())
+            .child(self.palette_slot())
             .child(
                 div()
                     .flex_none()
@@ -458,6 +523,9 @@ impl Pensive {
             )
     }
 }
+
+/// The palette's height. A shorter window shrinks it.
+const PALETTE_HEIGHT: Dp = dp(480.);
 
 /// The share of a display's usable area that a windowed window takes.
 const WINDOWED_SHARE: f32 = 0.75;
@@ -602,6 +670,12 @@ impl Render for Pensive {
             .on_action(cx.listener(|pensive, _: &OpenSettings, window, cx| {
                 pensive.open_settings(window, cx)
             }))
+            .on_action(
+                cx.listener(|pensive, _: &OpenFolder, window, cx| pensive.open_folder(window, cx)),
+            )
+            .on_action(cx.listener(|pensive, _: &SwitchBranch, window, cx| {
+                pensive.open_palette_scoped(Keyword::Branch, window, cx)
+            }))
             .on_action(|_: &ZoomIn, _, cx| theme::step_zoom(1, cx))
             .on_action(|_: &ZoomOut, _, cx| theme::step_zoom(-1, cx))
             .on_action(|_: &ResetZoom, _, cx| theme::reset_zoom(cx))
@@ -621,10 +695,10 @@ impl Render for Pensive {
                         .flex()
                         .flex_col()
                         .items_center()
-                        .pt_16()
-                        .pb_16()
+                        .justify_center()
+                        .py_16()
                         .bg(scrim(cx))
-                        .child(self.palette.clone()),
+                        .child(self.palette_slot()),
                 )
             });
         #[cfg(feature = "mocks")]
@@ -696,12 +770,82 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_palettes_gear_opens_settings(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        cx.dispatch_action(OpenPalette);
+        cx.run_until_parked();
+        let gear = cx.debug_bounds("palette-settings").unwrap();
+        click(cx, gear.center());
+        view.read_with(cx, |pensive, _| {
+            assert!(pensive.settings.is_some());
+            assert!(!pensive.palette_open);
+        });
+    }
+
+    #[gpui::test]
+    fn open_folder_shows_the_repository_picked(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        let harbor = view.read_with(cx, |pensive, cx| {
+            let projects = pensive.projects.read(cx);
+            projects.project(HARBOR).unwrap().repository.root.clone()
+        });
+        cx.simulate_keystrokes(&secondary("o"));
+        assert!(cx.did_prompt_for_paths());
+        cx.simulate_path_prompt_response(|_| Some(vec![harbor]));
+        cx.run_until_parked();
+        let project = view.read_with(cx, |pensive, _| pensive.project_id());
+        assert_eq!(project, Some(HARBOR));
+    }
+
+    #[gpui::test]
+    fn the_palettes_open_folder_asks_for_a_folder(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        cx.dispatch_action(OpenPalette);
+        cx.simulate_input("open folder");
+        cx.simulate_keystrokes("enter");
+        assert!(cx.did_prompt_for_paths());
+        assert!(!palette_open(&view, cx));
+    }
+
+    #[gpui::test]
+    fn a_command_with_nothing_behind_it_says_so(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        cx.dispatch_action(OpenPalette);
+        cx.simulate_input("push");
+        cx.simulate_keystrokes("enter");
+        assert!(!palette_open(&view, cx));
+        let titles: Vec<String> = cx.update(|_, cx| {
+            let notices = Notices::global(cx);
+            let held = notices.read(cx).held();
+            held.iter()
+                .map(|held| held.notice.title.to_string())
+                .collect()
+        });
+        assert!(
+            titles.contains(&"Push isn't wired up yet".to_string()),
+            "{titles:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn switch_branch_opens_the_palette_on_branches(cx: &mut TestAppContext) {
+        let (view, cx) = pensive_window(cx);
+        cx.simulate_keystrokes(&secondary("b"));
+        assert!(palette_open(&view, cx));
+        let keyword = view.read_with(cx, |pensive, cx| {
+            pensive.palette.read(cx).keyword().cloned()
+        });
+        assert_eq!(keyword, Some(Keyword::Branch));
+    }
+
+    #[gpui::test]
     fn a_click_outside_the_palette_closes_it(cx: &mut TestAppContext) {
         let (view, cx) = pensive_window(cx);
         cx.dispatch_action(OpenPalette);
-        let center = cx.update(|window, _| window.viewport_size().width / 2.);
+        cx.run_until_parked();
+        let palette = cx.debug_bounds("palette").unwrap();
 
-        click(cx, point(center, px(90.)));
+        click(cx, palette.origin + point(palette.size.width / 2., px(24.)));
         assert!(palette_open(&view, cx));
         assert!(input_focused(&view, cx));
 

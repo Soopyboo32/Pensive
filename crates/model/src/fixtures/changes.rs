@@ -1,92 +1,73 @@
-//! Sample changes for the pensive project: the files and commits drawn on the app shell canvas.
+//! Sample changes for each project's main worktree. Pensive's are the files and commits drawn on
+//! the app shell canvas, and the other projects have smaller sets.
 //!
-//! Line counts match the canvas. Each file's versions are an excerpt, so a file can count more
-//! lines than its diff shows.
+//! Pensive's line counts match the canvas. Each file's versions are an excerpt, so a file can count
+//! more lines than its diff shows.
 
-use std::path::Path;
+mod other_projects;
+
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use gpui::SharedString;
 
+use super::{DOTFILES, GLYPH_UI, HARBOR, LANTERN, PENSIVE, ZED};
 use crate::{
     Base, Changes, Commit, FileChange, FileKey, FileOrigin, FileSource, FileStatus, FileVersions,
-    Source, Staging, Symbol, SymbolKind, Upstream, Version,
+    ProjectId, Source, Staging, Symbol, SymbolKind, Upstream, Version,
 };
 
-/// Seven uncommitted files, two staged and one partly staged, then two unpushed commits and one
-/// pushed.
+/// Pensive's: seven uncommitted files, two staged and one partly staged, then two unpushed commits
+/// and one pushed.
 pub fn changes() -> Changes {
-    let changes = |samples: Vec<Sample>| samples.into_iter().map(|sample| sample.change).collect();
-    Changes {
-        base: Some(Base {
-            branch: "master".into(),
-        }),
-        upstream: Some(Upstream {
-            remote: "origin".into(),
-            behind: 1,
-        }),
-        uncommitted: changes(uncommitted()),
-        commits: vec![
-            Commit {
-                sha: OPEN_PALETTE.into(),
-                title: "feat: open the command palette with Ctrl K".into(),
-                description: Some(
-                    "On the landing screen the palette fills the page, so the same keys work \
-                     before and after a project is open."
-                        .into(),
-                ),
-                pushed: false,
-                files: changes(open_palette()),
-            },
-            Commit {
-                sha: ADD_PROJECTS.into(),
-                title: "feat: add projects, worktrees and branches".into(),
-                description: Some("Projects are cached, so reading them never runs Git.".into()),
-                pushed: false,
-                files: changes(add_projects()),
-            },
-            Commit {
-                sha: "ef032a6".into(),
-                title: "feat: add CommandPalette component".into(),
-                description: None,
-                pushed: true,
-                files: Vec::new(),
-            },
-        ],
-    }
+    pensive().changes()
+}
+
+/// The sample changes in the main worktree at `worktree`, if it's a sample project's.
+pub(crate) fn changes_in(worktree: &Path) -> Option<Changes> {
+    Some(samples_in(worktree)?.changes())
+}
+
+/// Whether `worktree` is a sample project's main worktree.
+pub(crate) fn has_samples(worktree: &Path) -> bool {
+    samples_in(worktree).is_some()
 }
 
 /// Both versions of the sample file `key` names. As in Git, the old version is the one at
 /// `renamed_from` when that's given, so a rename read without it has no old version.
-pub(crate) fn versions(key: &FileKey, renamed_from: Option<&Path>) -> Option<FileVersions> {
-    let samples = samples(&key.source);
+pub(crate) fn versions(
+    worktree: &Path,
+    key: &FileKey,
+    renamed_from: Option<&Path>,
+) -> Option<FileVersions> {
+    let samples = samples_in(worktree)?;
+    let mut commits = samples.commits.into_iter();
+    let (files, new_origin) = match &key.source {
+        Source::Uncommitted => (samples.uncommitted, FileOrigin::Worktree),
+        Source::Commit(sha) => {
+            let commit = commits.find(|sample| sample.commit.sha == *sha)?;
+            (commit.files, FileOrigin::Commit(Some(sha.to_string())))
+        }
+    };
+    let old_revision = commits.next().map(|sample| sample.commit.sha.to_string());
     let old_path = renamed_from.unwrap_or(&key.path);
-    let old = samples
+    let old = files
         .iter()
         .find(|sample| sample.old_path() == old_path)
         .map_or(Version::Missing, |sample| sample.versions.0.clone());
-    let new = samples
+    let new = files
         .into_iter()
         .find(|sample| sample.change.path == key.path)?
         .versions
         .1;
-    let (old_revision, new_origin) = match &key.source {
-        Source::Uncommitted => (OPEN_PALETTE.to_owned(), FileOrigin::Worktree),
-        Source::Commit(sha) => (
-            if sha == OPEN_PALETTE {
-                ADD_PROJECTS
-            } else {
-                "ef032a6"
-            }
-            .to_owned(),
-            FileOrigin::Commit(Some(sha.to_string())),
-        ),
-    };
     Some(FileVersions {
         old,
         new,
         old_source: FileSource {
             path: old_path.to_path_buf(),
-            origin: FileOrigin::Commit(Some(old_revision)),
+            origin: FileOrigin::Commit(old_revision),
         },
         new_source: FileSource {
             path: key.path.clone(),
@@ -95,8 +76,88 @@ pub(crate) fn versions(key: &FileKey, renamed_from: Option<&Path>) -> Option<Fil
     })
 }
 
+/// The files the samples leave in `worktree`: each commit applied from the oldest, then the
+/// uncommitted changes.
+pub(crate) fn on_disk(worktree: &Path) -> Vec<PathBuf> {
+    let Some(samples) = samples_in(worktree) else {
+        return Vec::new();
+    };
+    let committed = samples
+        .commits
+        .iter()
+        .rev()
+        .flat_map(|commit| &commit.files);
+    let mut files = BTreeSet::new();
+    for sample in committed.chain(&samples.uncommitted) {
+        files.remove(sample.old_path());
+        if sample.change.status() != FileStatus::Deleted {
+            files.insert(sample.change.path.clone());
+        }
+    }
+    files.into_iter().collect()
+}
+
 const OPEN_PALETTE: &str = "5e35ea9";
 const ADD_PROJECTS: &str = "6284693";
+
+/// A main worktree's changes, with both versions of every file.
+struct WorktreeSamples {
+    base: Option<Base>,
+    upstream: Option<Upstream>,
+    uncommitted: Vec<Sample>,
+    /// The base's commits from where the branch started, newest first.
+    earlier: Vec<SampleCommit>,
+    commits: Vec<SampleCommit>,
+}
+
+impl WorktreeSamples {
+    fn changes(self) -> Changes {
+        let changes =
+            |samples: Vec<Sample>| samples.into_iter().map(|sample| sample.change).collect();
+        let commits = |samples: Vec<SampleCommit>| {
+            samples
+                .into_iter()
+                .map(|SampleCommit { commit, files }| Commit {
+                    files: changes(files),
+                    ..commit
+                })
+                .collect()
+        };
+        Changes {
+            base: self.base,
+            upstream: self.upstream,
+            uncommitted: changes(self.uncommitted),
+            commits: commits(self.commits),
+            earlier: commits(self.earlier),
+        }
+    }
+}
+
+/// A commit, with its files kept apart until they're turned into changes.
+struct SampleCommit {
+    commit: Commit,
+    files: Vec<Sample>,
+}
+
+impl SampleCommit {
+    fn new(sha: &str, title: &str, pushed: bool, files: Vec<Sample>) -> Self {
+        Self {
+            commit: Commit {
+                sha: SharedString::from(sha.to_string()),
+                title: SharedString::from(title.to_string()),
+                description: None,
+                pushed,
+                files: Vec::new(),
+            },
+            files,
+        }
+    }
+
+    fn described(mut self, description: &str) -> Self {
+        self.commit.description = Some(SharedString::from(description.to_string()));
+        self
+    }
+}
 
 /// A file as the sidebar lists it, and its two versions.
 struct Sample {
@@ -113,12 +174,97 @@ impl Sample {
     }
 }
 
-fn samples(source: &Source) -> Vec<Sample> {
-    match source {
-        Source::Uncommitted => uncommitted(),
-        Source::Commit(sha) if sha == OPEN_PALETTE => open_palette(),
-        Source::Commit(sha) if sha == ADD_PROJECTS => add_projects(),
-        Source::Commit(_) => Vec::new(),
+fn samples_in(worktree: &Path) -> Option<WorktreeSamples> {
+    let index = super::repositories()
+        .iter()
+        .position(|(repository, _)| repository.root == worktree)?;
+    match ProjectId(index) {
+        PENSIVE => Some(pensive()),
+        HARBOR => Some(other_projects::harbor()),
+        LANTERN => Some(other_projects::lantern()),
+        GLYPH_UI => Some(other_projects::glyph_ui()),
+        DOTFILES => Some(other_projects::dotfiles()),
+        ZED => Some(other_projects::zed()),
+        _ => None,
+    }
+}
+
+fn base(branch: &str) -> Option<Base> {
+    Some(Base {
+        branch: SharedString::from(branch.to_string()),
+    })
+}
+
+fn origin(behind: usize) -> Option<Upstream> {
+    Some(Upstream {
+        remote: "origin".into(),
+        behind,
+    })
+}
+
+fn pensive() -> WorktreeSamples {
+    WorktreeSamples {
+        base: base("master"),
+        upstream: origin(1),
+        uncommitted: uncommitted(),
+        earlier: [
+            (
+                "532d38b",
+                "Merge pull request #84 from feat/shared-tree-row",
+            ),
+            (
+                "7edb2ff",
+                "refactor: one tree row for the Changes and Files panels",
+            ),
+            (
+                "35b32bc",
+                "refactor: one tree builder for the Changes and Files panels",
+            ),
+            (
+                "7b1f208",
+                "Merge pull request #82 from feat/zoom-and-code-size",
+            ),
+            (
+                "a14c0de",
+                "feat: zoom the whole window, and size code apart from it",
+            ),
+            (
+                "3f9e21b",
+                "feat: save open files a second after typing stops",
+            ),
+            (
+                "c07d5a4",
+                "fix: keep the caret in view while typing at the end",
+            ),
+        ]
+        .into_iter()
+        .map(|(sha, title)| SampleCommit::new(sha, title, true, Vec::new()))
+        .collect(),
+        commits: vec![
+            SampleCommit::new(
+                OPEN_PALETTE,
+                "feat: open the command palette with Ctrl K",
+                false,
+                open_palette(),
+            )
+            .described(
+                "On the landing screen the palette fills the page, so the same keys work before \
+                 and after a project is open.",
+            ),
+            SampleCommit::new(
+                ADD_PROJECTS,
+                "feat: add projects, worktrees and branches",
+                false,
+                add_projects(),
+            )
+            .described("Projects are cached, so reading them never runs Git."),
+            SampleCommit::new(
+                "ef032a6",
+                "feat: add CommandPalette component",
+                true,
+                Vec::new(),
+            ),
+        ],
     }
 }
 

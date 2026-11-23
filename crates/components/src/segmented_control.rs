@@ -8,7 +8,7 @@ use gpui::{
     Animation, AnimationExt, App, Div, ElementId, SharedString, Window, div, ease_out_quint,
     prelude::*, relative,
 };
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, tooltip::text_tooltip, transition::transition};
 
@@ -195,7 +195,7 @@ impl RenderOnce for SegmentedControl {
                 Segment::Icon(icon) => {
                     segment
                         .w(dp(24.))
-                        .child(Icon::new(icon).size(dp(14.)).color(if selected {
+                        .child(Icon::new(icon).size(IconSize::Medium).color(if selected {
                             colors.text_strong
                         } else if hovered {
                             colors.text

@@ -30,6 +30,8 @@ pub enum TimelineNode {
     Commit {
         pushed: bool,
     },
+    /// A commit from before the branch started, hollow.
+    Older,
     /// The commit that's open, ringed.
     Open,
     /// A marker such as HEAD or origin.
@@ -145,6 +147,15 @@ impl RenderOnce for TimelineRow {
                 )
                 .into_any_element(),
             ),
+            TimelineNode::Older => Some(
+                div()
+                    .size(dp(10.))
+                    .rounded_full()
+                    .border(dp(1.5))
+                    .border_color(colors.text_faint)
+                    .bg(colors.surface_panel)
+                    .into_any_element(),
+            ),
             TimelineNode::Open => Some(
                 div()
                     .flex()
@@ -228,6 +239,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
         Nothing,
         Commit,
         Pushed,
+        Older,
         Open,
         Tick,
         Ring,
@@ -245,6 +257,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                             Shown::Nothing => TimelineNode::None,
                             Shown::Commit => TimelineNode::Commit { pushed: false },
                             Shown::Pushed => TimelineNode::Commit { pushed: true },
+                            Shown::Older => TimelineNode::Older,
                             Shown::Open => TimelineNode::Open,
                             Shown::Tick => TimelineNode::Tick,
                             Shown::Ring => TimelineNode::Mark(

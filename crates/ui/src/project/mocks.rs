@@ -1,9 +1,9 @@
 //! One mock per board on the app shell canvas: the pensive project's window in each state,
-//! built from the sample changes.
+//! built from the sample changes, then harbor's window partway through a merge.
 
 use gpui::{AnyView, App, AppContext, Context, Window};
 use mock::Mock;
-use model::fixtures::{self, PENSIVE};
+use model::fixtures::{self, HARBOR, PENSIVE};
 use theme::DensityPreset;
 
 use super::{Control, FileLayout, Panel, ProjectView};
@@ -15,64 +15,71 @@ use crate::{
 
 pub(crate) fn mocks() -> Vec<Mock> {
     vec![
-        Mock::new("project", "some_staged", |window, cx| {
+        mock_window::mock("project", "some_staged", |window, cx| {
             framed(untouched, window, cx)
         }),
-        Mock::new("project", "all_staged", |window, cx| {
+        mock_window::mock("project", "all_staged", |window, cx| {
             framed(|view, _, cx| view.set_all_staged(true, cx), window, cx)
         }),
-        Mock::new("project", "nothing_staged", |window, cx| {
+        mock_window::mock("project", "nothing_staged", |window, cx| {
             framed(|view, _, cx| view.set_all_staged(false, cx), window, cx)
         }),
-        Mock::new("project", "uncommitted_folded", |window, cx| {
+        mock_window::mock("project", "uncommitted_folded", |window, cx| {
             framed(
                 |view, _, cx| view.set_uncommitted_open(false, cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "commit_open", |window, cx| {
+        mock_window::mock("project", "commit_open", |window, cx| {
             framed(
                 |view, _, cx| view.toggle_commit("5e35ea9".into(), cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "hovering_a_file", |window, cx| {
+        mock_window::mock("project", "earlier_expanded", |window, cx| {
+            framed(
+                |view, _, cx| view.set_earlier_expanded(true, cx),
+                window,
+                cx,
+            )
+        }),
+        mock_window::mock("project", "hovering_a_file", |window, cx| {
             framed(|view, _, cx| view.show_path(1, cx), window, cx)
         }),
-        Mock::new("project", "path_copied", |window, cx| {
+        mock_window::mock("project", "path_copied", |window, cx| {
             framed(|view, _, cx| view.show_copied(1, cx), window, cx)
         }),
-        Mock::new("project", "push_not_wired", |window, cx| {
+        mock_window::mock("project", "push_not_wired", |window, cx| {
             framed(
                 |view, _, cx| view.show_notice(Control::Push, cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "search_not_wired", |window, cx| {
+        mock_window::mock("project", "pull_requests_not_wired", |window, cx| {
             framed(
-                |view, _, cx| view.show_notice(Control::Panel(Panel::Search), cx),
+                |view, _, cx| view.show_notice(Control::Panel(Panel::PullRequests), cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "commit_not_wired", |window, cx| {
+        mock_window::mock("project", "commit_not_wired", |window, cx| {
             framed(
                 |view, _, cx| view.show_notice(Control::Commit, cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "tree_layout", |window, cx| {
+        mock_window::mock("project", "tree_layout", |window, cx| {
             framed(
                 |view, _, cx| view.set_layout(FileLayout::Tree, cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "symbol_layout", |window, cx| {
+        mock_window::mock("project", "symbol_layout", |window, cx| {
             framed(
                 |view, _, cx| {
                     view.set_layout(FileLayout::Symbols, cx);
@@ -82,16 +89,16 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("project", "no_changes", |window, cx| {
+        mock_window::mock("project", "no_changes", |window, cx| {
             crate::declare_settings(cx);
             let projects = cx.new(|_| fixtures::clean_projects());
             cx.new(|cx| Pensive::new(projects, Some(PENSIVE), window, cx))
                 .into()
         }),
-        Mock::new("project", "changes_folded", |window, cx| {
+        mock_window::mock("project", "changes_folded", |window, cx| {
             framed(|view, _, cx| view.select_uncommitted(5, cx), window, cx)
         }),
-        Mock::new("project", "file_mode", |window, cx| {
+        mock_window::mock("project", "file_mode", |window, cx| {
             framed(
                 |view, _, cx| {
                     view.select_uncommitted(5, cx);
@@ -101,14 +108,14 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("project", "plain_mode", |window, cx| {
+        mock_window::mock("project", "plain_mode", |window, cx| {
             framed(
                 |view, _, cx| view.set_editor_mode(Mode::Plain, cx),
                 window,
                 cx,
             )
         }),
-        Mock::new("project", "unsaved", |window, cx| {
+        mock_window::mock("project", "unsaved", |window, cx| {
             SAVE.set(SaveMode::Manual, cx);
             framed(
                 |view, window, cx| view.type_when_open("// TODO: ", window, cx),
@@ -116,14 +123,17 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("project", "some_staged_dense", |window, cx| {
+        mock_window::mock("project", "renamed_and_conflicted", |window, cx| {
+            mock_window::pensive(Some(HARBOR), window, cx).into()
+        }),
+        mock_window::mock("project", "some_staged_dense", |window, cx| {
             cx.set_global(DensityPreset::Dense.density());
             framed(untouched, window, cx)
         }),
-        Mock::new("files_panel", "calm", |window, cx| {
+        mock_window::mock("files_panel", "calm", |window, cx| {
             framed(|view, _, cx| view.show_panel(Panel::Files, cx), window, cx)
         }),
-        Mock::new("files_panel", "filtered", |window, cx| {
+        mock_window::mock("files_panel", "filtered", |window, cx| {
             framed(
                 |view, _, cx| {
                     view.show_panel(Panel::Files, cx);
@@ -133,7 +143,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        Mock::new("files_panel", "dense", |window, cx| {
+        mock_window::mock("files_panel", "dense", |window, cx| {
             cx.set_global(DensityPreset::Dense.density());
             framed(|view, _, cx| view.show_panel(Panel::Files, cx), window, cx)
         }),

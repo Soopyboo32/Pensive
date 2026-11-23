@@ -5,7 +5,7 @@ use gpui::{
     App, Bounds, Hsla, Pixels, SharedString, Window, canvas, div, fill, linear_color_stop,
     linear_gradient, point, prelude::*, size,
 };
-use theme::{ActiveTheme, Dp, ThemeColors, dp};
+use theme::{ActiveTheme, ColorRole, Dp, dp};
 
 /// How far before the end the fade starts.
 const FADE: Dp = dp(28.);
@@ -13,7 +13,7 @@ const FADE: Dp = dp(28.);
 #[derive(IntoElement)]
 pub struct FadeText {
     text: SharedString,
-    background: fn(&ThemeColors) -> Hsla,
+    background: ColorRole,
 }
 
 impl FadeText {
@@ -26,7 +26,7 @@ impl FadeText {
     }
 
     /// The color behind the text, which the fade ends in.
-    pub fn background(mut self, background: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn background(mut self, background: ColorRole) -> Self {
         self.background = background;
         self
     }

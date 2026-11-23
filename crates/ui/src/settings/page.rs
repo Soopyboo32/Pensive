@@ -6,7 +6,7 @@ use components::{
 };
 use gpui::{AnyElement, App, Context, SharedString, div, prelude::*};
 use settings::AnySetting;
-use theme::{ActiveTheme, HAIRLINE, Typeset, dp};
+use theme::{ActiveTheme, HAIRLINE, IconSize, Typeset, dp};
 
 use super::{
     Anchor, SettingsView, Spot,
@@ -23,12 +23,13 @@ impl SettingsView {
         hits: &Hits,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let here = self.results(
-            &hits.here,
-            |hit| outline[hit.category].pages[hit.page].name,
+        let page = |hit: &Hit| outline[hit.category].pages[hit.page].name;
+        let here = self.results(&hits.here, |hit| page(hit).into(), cx);
+        let elsewhere = self.results(
+            &hits.elsewhere,
+            |hit| format!("{} › {}", outline[hit.category].name, page(hit)).into(),
             cx,
         );
-        let elsewhere = self.results(&hits.elsewhere, |hit| outline[hit.category].name, cx);
         let colors = &cx.theme().colors;
         let density = cx.density();
         let label = |text: SharedString, icon: Option<IconName>| {
@@ -41,7 +42,11 @@ impl SettingsView {
                 .px(dp(18.))
                 .typeset(density.label)
                 .text_color(colors.text_faint)
-                .children(icon.map(|icon| Icon::new(icon).size(dp(14.)).color(colors.text_faint)))
+                .children(icon.map(|icon| {
+                    Icon::new(icon)
+                        .size(IconSize::Medium)
+                        .color(colors.text_faint)
+                }))
                 .child(text.to_uppercase())
         };
         let home = &outline[self.home()];
@@ -63,39 +68,43 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// `hits` as a list, each naming where it is on the right. Clicking one shows it in place.
+    /// `hits` as a list, nested under rows named by `page`. Clicking a row shows it in place.
     pub(super) fn results(
         &self,
         hits: &[Hit],
-        place: impl Fn(&Hit) -> &'static str,
+        page: impl Fn(&Hit) -> SharedString,
         cx: &mut Context<Self>,
     ) -> Option<NavList> {
-        if hits.is_empty() {
-            return None;
-        }
-        let items = hits
-            .iter()
-            .map(|hit| NavItem {
-                label: hit.setting.name().into(),
-                matches: hit.matches.clone(),
-                trailing: Some(place(hit).into()),
-            })
-            .collect();
-        let spots: Vec<Spot> = hits
-            .iter()
-            .map(|hit| Spot {
+        let first = hits.first()?;
+        let mut items = Vec::new();
+        let mut targets: Vec<(Spot, Option<usize>)> = Vec::new();
+        for hit in hits {
+            let spot = Spot {
                 category: hit.category,
                 page: hit.page,
-            })
-            .collect();
-        let id = if hits[0].category == self.home() {
+            };
+            if targets.last().is_none_or(|(last, _)| *last != spot) {
+                items.push(NavItem::new(page(hit)));
+                targets.push((spot, None));
+            }
+            items.push(NavItem {
+                label: hit.setting.name().into(),
+                matches: hit.matches.clone(),
+                nested: true,
+            });
+            targets.push((spot, Some(hit.index)));
+        }
+        let id = if first.category == self.home() {
             "here"
         } else {
             "elsewhere"
         };
         Some(NavList::new(id, items).on_select(view_callback_with(
             cx,
-            move |view: &mut Self, index: usize, _, cx| view.show_after_search(spots[index], cx),
+            move |view: &mut Self, index: usize, _, cx| {
+                let (spot, setting) = targets[index];
+                view.show_after_search(spot, setting, cx)
+            },
         )))
     }
 
@@ -131,10 +140,13 @@ impl SettingsView {
                     category,
                     page: index,
                 };
-                let rows = page
-                    .settings
-                    .iter()
-                    .map(|setting| Self::row(*setting, None, cx));
+                let tracked = category == self.current.category;
+                let rows = page.settings.iter().enumerate().map(|(place, setting)| {
+                    div()
+                        .relative()
+                        .child(Self::row(*setting, None, cx))
+                        .when(tracked, |row| row.child(self.setting_marker(spot, place)))
+                });
                 let block = div()
                     .when(index == 0, |block| {
                         block.child(CategoryHeading::new(

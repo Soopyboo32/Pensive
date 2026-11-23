@@ -1,16 +1,18 @@
 //! A square button that shows only an icon.
 
-use gpui::{App, ElementId, Hsla, Window, div, prelude::*};
-use theme::{ActiveTheme, Dp, ThemeColors, dp};
+use gpui::{App, ElementId, SharedString, Window, div, prelude::*};
+use theme::{ActiveTheme, ColorRole, Dp, IconSize, dp};
 
-use crate::{Callback, Icon, IconName, OnClick as _, callback};
+use crate::{Callback, Icon, IconName, OnClick as _, callback, tooltip::text_tooltip};
 
 #[derive(IntoElement)]
 pub struct IconButton {
     id: ElementId,
     icon: IconName,
     size: Dp,
-    color: fn(&ThemeColors) -> Hsla,
+    color: ColorRole,
+    hover_fill: ColorRole,
+    tooltip: Option<SharedString>,
     on_click: Option<Callback<()>>,
 }
 
@@ -22,6 +24,8 @@ impl IconButton {
             icon,
             size: dp(24.),
             color: |colors| colors.text_muted,
+            hover_fill: |colors| colors.surface_raised,
+            tooltip: None,
             on_click: None,
         }
     }
@@ -33,8 +37,20 @@ impl IconButton {
     }
 
     /// Picks the icon's color role.
-    pub fn color(mut self, color: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn color(mut self, color: ColorRole) -> Self {
         self.color = color;
+        self
+    }
+
+    /// The fill under the pointer, `surface_raised` by default. A button on a raised surface
+    /// needs a step above it.
+    pub fn hover_fill(mut self, fill: ColorRole) -> Self {
+        self.hover_fill = fill;
+        self
+    }
+
+    pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(text.into());
         self
     }
 
@@ -47,7 +63,7 @@ impl IconButton {
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = &cx.theme().colors;
-        let hover = colors.surface_raised;
+        let hover = (self.hover_fill)(colors);
         div()
             .id(self.id)
             .flex()
@@ -59,9 +75,12 @@ impl RenderOnce for IconButton {
             .hover(move |button| button.bg(hover))
             .child(
                 Icon::new(self.icon)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color((self.color)(colors)),
             )
+            .when_some(self.tooltip, |button, text| {
+                button.tooltip(text_tooltip(text))
+            })
             .on_click_callback(self.on_click)
     }
 }

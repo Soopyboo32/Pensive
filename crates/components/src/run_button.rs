@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, ElementId, SharedString, Window, deferred, div, prelude::*};
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset, dp};
 
 use crate::{
     Callback, FadeText, Icon, IconName, Tone,
@@ -212,10 +212,10 @@ impl RenderOnce for RunButton {
             .hover(|go| go.bg(colors.surface_selected))
             .child(match &self.state {
                 RunState::Running { .. } => Icon::new(IconName::Square)
-                    .size(dp(12.))
+                    .size(IconSize::Small)
                     .color(colors.diff_removed),
                 _ => Icon::new(IconName::Play)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color(colors.diff_added),
             })
             .child(name)
@@ -245,21 +245,21 @@ impl RenderOnce for RunButton {
             segment("log")
                 .child(
                     Icon::new(IconName::ScrollText)
-                        .size(dp(13.))
+                        .exact_size(dp(13.))
                         .color(colors.diff_removed),
                 )
                 .on_click(act(RunAction::OpenLog, &self.on_action))
         });
         let pick = if running {
             segment("restart")
-                .child(Icon::new(IconName::RotateCcw).size(dp(12.)))
+                .child(Icon::new(IconName::RotateCcw).size(IconSize::Small))
                 .on_click(act(RunAction::Restart, &self.on_action))
         } else {
             segment("pick")
                 .when(open, |pick| pick.bg(colors.surface_selected))
                 .child(
                     Icon::new(IconName::ChevronDown)
-                        .size(dp(12.))
+                        .size(IconSize::Small)
                         .color(if open { colors.text } else { colors.text_faint }),
                 )
                 .on_click(move |_, _, cx| {

@@ -1,15 +1,45 @@
 //! The settings sidebar: the category rail with the gear at its foot, the search field, and the
-//! current category's pages.
+//! current category's pages, with the settings of the page being read under it.
 
 use components::{Icon, IconName, Kbd, NavItem, NavList, Rail, RailButton, RailItem};
 use gpui::{
     Animation, AnimationExt, AnyElement, Context, Focusable, Window, deferred, div, ease_out_quint,
     prelude::*,
 };
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset};
 
 use super::{CATEGORY_IN, CATEGORY_OUT, SettingsView, Spot, Tool, outline::Category, search::Hits};
 use crate::{notices, rail_gear::rail_gear, view_callback, view_callback_with};
+
+/// A row of a category's list.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ListRow {
+    Page(usize),
+    Setting { page: usize, setting: usize },
+}
+
+/// `category`'s pages, with page `open`'s settings under it. A page with one setting lists none,
+/// since its own row already leads there.
+fn list_rows(category: &Category, open: Option<usize>) -> Vec<ListRow> {
+    let mut rows = Vec::new();
+    for (page, entry) in category.pages.iter().enumerate() {
+        rows.push(ListRow::Page(page));
+        if open == Some(page) && entry.settings.len() > 1 {
+            rows.extend(
+                (0..entry.settings.len()).map(|setting| ListRow::Setting { page, setting }),
+            );
+        }
+    }
+    rows
+}
+
+/// The row showing `setting` of `page`: its own, or its page's when it has none.
+fn row_of(rows: &[ListRow], page: usize, setting: usize) -> Option<usize> {
+    let own = ListRow::Setting { page, setting };
+    rows.iter()
+        .position(|row| *row == own)
+        .or_else(|| rows.iter().position(|row| *row == ListRow::Page(page)))
+}
 
 impl SettingsView {
     pub(super) fn rail(
@@ -32,6 +62,11 @@ impl SettingsView {
         } else {
             self.current.category
         };
+        let named = self.names_shown();
+        let toggle_names = match self.names {
+            true => "Hide names",
+            false => "Show names",
+        };
         let tool = |tool: Tool, icon: IconName, name: &'static str| {
             let notice = self
                 .notice
@@ -41,7 +76,8 @@ impl SettingsView {
             div()
                 .relative()
                 .child(
-                    RailButton::new(name, icon, name)
+                    RailButton::new(("tool", tool as usize), icon, name)
+                        .named(named)
                         .hovered(self.hovered_tool == Some(tool) && notice.is_none())
                         .on_hover(view_callback_with(
                             cx,
@@ -69,14 +105,17 @@ impl SettingsView {
                 self.previous
                     .as_ref()
                     .filter(|_| hits.is_none())
-                    .map(|(spot, _)| spot.category),
+                    .map(|(spot, ..)| spot.category),
             )
             .hovered(self.hovered)
+            .named(self.names)
+            .names_toggled(self.names_sliding.is_some().then_some(self.names_toggles))
             .tools([
                 tool(Tool::OpenFile, IconName::FileCog, "Open settings.toml"),
-                tool(Tool::ShowNames, IconName::PanelLeft, "Show names"),
+                tool(Tool::ShowNames, IconName::PanelLeft, toggle_names),
                 rail_gear(
                     true,
+                    named,
                     self.gear_hovered,
                     |view: &mut Self, hovered| view.gear_hovered = hovered,
                     cx,
@@ -120,7 +159,7 @@ impl SettingsView {
             .typeset(density.body)
             .child(
                 Icon::new(IconName::Search)
-                    .size(dp(14.))
+                    .size(IconSize::Medium)
                     .color(colors.text_faint),
             )
             .child(div().flex_1().min_w_0().child(self.search.clone()))
@@ -128,60 +167,45 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// The current category's title and pages, crossfading from the last category's.
+    /// The current category's pages, crossfading from the last category's.
     pub(super) fn pages_list(&self, outline: &[Category], cx: &mut Context<Self>) -> AnyElement {
         let list = |category: usize, cx: &mut Context<Self>| {
-            let colors = &cx.theme().colors;
-            let density = cx.density();
             let Some(entry) = outline.get(category) else {
                 return div().into_any_element();
             };
-            let current = self.current;
-            let selected = (current.category == category).then_some(current.page);
+            let current =
+                (self.current.category == category).then_some((self.current.page, self.reading));
             let previous = self
                 .previous
                 .as_ref()
-                .filter(|(spot, _)| spot.category == category)
-                .map(|(spot, _)| spot.page);
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .pt_1()
-                        .pb_3()
-                        .px_4()
-                        .child(
-                            div()
-                                .typeset(density.title)
-                                .text_color(colors.text_strong)
-                                .child(entry.name),
-                        )
-                        .child(
-                            div()
-                                .typeset(density.small)
-                                .text_color(colors.text_faint)
-                                .child(entry.description),
-                        ),
-                )
-                .child(
-                    NavList::new(
-                        ("pages", category),
-                        entry
-                            .pages
-                            .iter()
-                            .map(|page| NavItem::new(page.name))
-                            .collect(),
-                    )
-                    .selected(selected)
-                    .previous(previous)
-                    .on_select(view_callback_with(
-                        cx,
-                        move |view: &mut Self, page, _, cx| {
-                            view.show_page(Spot { category, page }, cx)
-                        },
-                    )),
-                )
+                .filter(|(spot, ..)| spot.category == category)
+                .map(|(spot, setting, _)| (spot.page, *setting));
+            let open = current.or(previous).map(|(page, _)| page);
+            let rows = list_rows(entry, open);
+            let row = |(page, setting)| row_of(&rows, page, setting);
+            let selected = current.and_then(row);
+            let previous = previous.and_then(row);
+            let items = rows
+                .iter()
+                .map(|row| match *row {
+                    ListRow::Page(page) => NavItem::new(entry.pages[page].name),
+                    ListRow::Setting { page, setting } => {
+                        NavItem::new(entry.pages[page].settings[setting].name()).nested()
+                    }
+                })
+                .collect();
+            NavList::new(("pages", category), items)
+                .selected(selected)
+                .previous(previous)
+                .on_select(view_callback_with(
+                    cx,
+                    move |view: &mut Self, index: usize, window, cx| match rows[index] {
+                        ListRow::Page(page) => view.show_page(Spot { category, page }, cx),
+                        ListRow::Setting { page, setting } => {
+                            view.show_setting(Spot { category, page }, setting, window, cx)
+                        }
+                    },
+                ))
                 .into_any_element()
         };
         let to = self.current.category;
@@ -213,5 +237,59 @@ impl SettingsView {
                 },
             ))
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use components::IconName;
+    use settings::{AnySetting, Control, Setting};
+
+    use super::*;
+    use crate::settings::outline::Page;
+
+    static ONE: Setting<bool> = Setting {
+        key: "one",
+        name: "One",
+        description: "",
+        default: true,
+        control: Control::Toggle,
+    };
+    static TWO: Setting<bool> = Setting {
+        key: "two",
+        name: "Two",
+        description: "",
+        default: true,
+        control: Control::Toggle,
+    };
+
+    fn category() -> Category {
+        let page = |name, settings: Vec<&'static dyn AnySetting>| Page { name, settings };
+        Category {
+            name: "Category",
+            icon: IconName::Settings,
+            description: "",
+            pages: vec![page("Single", vec![&ONE]), page("Double", vec![&ONE, &TWO])],
+        }
+    }
+
+    #[test]
+    fn only_the_open_page_lists_its_settings() {
+        let double = ListRow::Setting {
+            page: 1,
+            setting: 1,
+        };
+        let rows = list_rows(&category(), Some(1));
+        assert_eq!(rows.len(), 4);
+        assert_eq!(row_of(&rows, 1, 1), rows.iter().position(|r| *r == double));
+        assert_eq!(list_rows(&category(), Some(0)).len(), 2);
+        assert_eq!(list_rows(&category(), None).len(), 2);
+    }
+
+    #[test]
+    fn a_setting_without_a_row_shows_on_its_page() {
+        let rows = list_rows(&category(), Some(0));
+        assert_eq!(row_of(&rows, 1, 1), Some(1));
+        assert_eq!(row_of(&rows, 0, 0), Some(0));
     }
 }

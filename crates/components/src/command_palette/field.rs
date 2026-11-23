@@ -1,7 +1,7 @@
 //! The palette's search row: keyword chips, the query, and the tab strip.
 
 use gpui::{AnyElement, Div, SharedString, div, prelude::*};
-use theme::{Density, Theme, Typeset, dp};
+use theme::{Density, IconSize, Theme, Typeset, dp};
 
 use crate::{Icon, IconName, TabStrip};
 
@@ -61,7 +61,7 @@ impl PaletteChip {
             .when(self.removable, |chip| {
                 chip.child(
                     Icon::new(IconName::X)
-                        .size(dp(12.))
+                        .size(IconSize::Small)
                         .color(colors.text_faint),
                 )
             })

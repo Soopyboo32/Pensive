@@ -2,8 +2,8 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use gpui::{AnyElement, App, Hsla, Pixels, Window, canvas, div, prelude::*};
-use theme::{ActiveTheme, Dp, ThemeColors, dp};
+use gpui::{AnyElement, App, Pixels, Window, canvas, div, prelude::*};
+use theme::{ActiveTheme, ColorRole, IconSize};
 
 use crate::{
     Icon, IconName,
@@ -13,8 +13,8 @@ use crate::{
 #[derive(IntoElement)]
 pub struct Breadcrumb {
     crumbs: Vec<AnyElement>,
-    chevron: Dp,
-    fade_start: Option<fn(&ThemeColors) -> Hsla>,
+    chevron: IconSize,
+    fade_start: Option<ColorRole>,
 }
 
 impl Breadcrumb {
@@ -25,20 +25,20 @@ impl Breadcrumb {
                 .into_iter()
                 .map(IntoElement::into_any_element)
                 .collect(),
-            chevron: dp(12.),
+            chevron: IconSize::Small,
             fade_start: None,
         }
     }
 
     /// When the crumbs don't fit, the first ones run off the start and fade into `background`,
     /// so the last crumb always shows.
-    pub fn fade_start(mut self, background: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn fade_start(mut self, background: ColorRole) -> Self {
         self.fade_start = Some(background);
         self
     }
 
-    /// The chevron's size, 12 px unless set.
-    pub fn chevron_size(mut self, size: Dp) -> Self {
+    /// The chevron's size, small unless set.
+    pub fn chevron_size(mut self, size: IconSize) -> Self {
         self.chevron = size;
         self
     }
@@ -111,6 +111,8 @@ impl RenderOnce for Breadcrumb {
 
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
+    use theme::dp;
+
     vec![
         mock::Mock::component("breadcrumb", "gallery", || {
             crate::Gallery::new("Breadcrumb")

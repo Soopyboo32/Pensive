@@ -3,10 +3,10 @@
 use std::ops::Range;
 
 use gpui::{
-    AnyElement, Div, FontWeight, HighlightStyle, Hsla, SharedString, Stateful, StyledText, div,
+    AnyElement, Div, FontWeight, HighlightStyle, SharedString, Stateful, StyledText, div,
     prelude::*,
 };
-use theme::{Density, Theme, ThemeColors, Typeset, dp};
+use theme::{ColorRole, Density, Theme, Typeset, dp};
 
 use super::KeyHint;
 use crate::{Icon, IconName, Kbd};
@@ -22,7 +22,7 @@ pub enum Leading {
 /// Text on the right of a row, before the time. Gray unless a scope has a reason for color.
 pub struct TrailingText {
     text: SharedString,
-    color: fn(&ThemeColors) -> Hsla,
+    color: ColorRole,
     code: bool,
 }
 
@@ -36,7 +36,7 @@ impl TrailingText {
     }
 
     /// Picks the color role, such as `|colors| colors.diff_added`.
-    pub fn color(mut self, color: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn color(mut self, color: ColorRole) -> Self {
         self.color = color;
         self
     }

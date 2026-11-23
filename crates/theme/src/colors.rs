@@ -13,6 +13,10 @@ pub fn gray(step: usize) -> Hsla {
     rgb(GRAYS[step - 1]).into()
 }
 
+/// Picks one role out of the theme, such as `|colors| colors.diff_added`, for a component that
+/// reads it when it renders.
+pub type ColorRole = fn(&ThemeColors) -> Hsla;
+
 #[derive(Refineable, Clone, Debug)]
 #[refineable(Debug, serde::Deserialize)]
 pub struct ThemeColors {
@@ -109,7 +113,7 @@ impl ThemeColors {
         }
     }
 
-    /// Every role in field order, grouped as in `docs/design.md`.
+    /// Every role in field order, with the group the theme gallery lists it under.
     pub fn roles(&self) -> Vec<Role> {
         let role = |group, name, color| Role { group, name, color };
         vec![

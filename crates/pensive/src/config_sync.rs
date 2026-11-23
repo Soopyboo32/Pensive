@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use gpui::{App, AppContext, UpdateGlobal};
+use gpui::{App, AppContext};
 use model::{ConfigBackend, ConfigEvent, ConfigFiles, Notice, Notices, Origin, Severity};
 use settings::Settings;
 use theme::UserThemes;
@@ -16,7 +16,7 @@ pub fn init(backend: Arc<dyn ConfigBackend>, cx: &mut App) {
         ConfigEvent::SettingsRead => {
             let source = files.read(cx).settings.clone();
             // The settings observer builds the theme.
-            let problems = Settings::update_global(cx, |settings, _| settings.load(&source));
+            let problems = Settings::load(&source, cx);
             warn("Setting ignored", problems, cx);
         }
         ConfigEvent::ThemesRead => {

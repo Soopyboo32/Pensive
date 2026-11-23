@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-license = "MPL-2.0"
+license = "FSL-1.1-ALv2"
 repository = "https://github.com/inglettronald/Pensive"
 
 [workspace.dependencies]
@@ -58,6 +58,11 @@ refineable = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
 # so they still build fast.
 [profile.dev.package."*"]
 debug = "line-tables-only"
+opt-level = 2
+
+# The mock crate is the exception: it loops over every pixel of each render,
+# which takes longer unoptimized than drawing the render did.
+[profile.dev.package.mock]
 opt-level = 2
 
 # Opt-in full debug info for dependencies, unoptimized so a debugger can step

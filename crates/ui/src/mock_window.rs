@@ -1,6 +1,8 @@
-//! The window view mocks start from: Pensive on the sample projects, set up as the app sets it up.
+//! The window view mocks start from: Pensive on the sample projects, set up as the app sets it up,
+//! at the size of a maximized window on a 1080p screen.
 
-use gpui::{App, AppContext, Entity, Window};
+use gpui::{AnyView, App, AppContext, Entity, Window};
+use mock::Mock;
 use model::{ProjectId, fixtures};
 
 use crate::root::Pensive;
@@ -15,4 +17,13 @@ pub(crate) fn pensive(
     crate::declare_settings(cx);
     let projects = cx.new(|_| fixtures::projects());
     cx.new(|cx| Pensive::new(projects, project, window, cx))
+}
+
+/// A mock of a whole window, at 1920 × 1080.
+pub(crate) fn mock(
+    subject: &'static str,
+    name: &'static str,
+    build: fn(&mut Window, &mut App) -> AnyView,
+) -> Mock {
+    Mock::new(subject, name, build).size(1920., 1080.)
 }

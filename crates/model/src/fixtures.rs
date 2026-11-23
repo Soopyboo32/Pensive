@@ -1,4 +1,5 @@
-//! Sample projects and changes for mocks and tests: the ones drawn on the design canvases.
+//! Sample projects and changes for mocks and tests: pensive's are the ones drawn on the design
+//! canvases.
 
 mod changes;
 pub mod contract;
@@ -15,7 +16,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{Branch, ProjectId, Projects, Repository, Worktree, WorktreeFiles};
+use crate::{Branch, GitBackend, ProjectId, Projects, Repository, Worktree, WorktreeFiles};
 
 const MINUTE: u64 = 60;
 const HOUR: u64 = 60 * MINUTE;
@@ -23,7 +24,7 @@ const DAY: u64 = 24 * HOUR;
 const WEEK: u64 = 7 * DAY;
 
 pub const PENSIVE: ProjectId = ProjectId(0);
-/// The pensive project's main worktree, which has the sample changes.
+/// The pensive project's main worktree.
 pub const PENSIVE_ROOT: &str = "~/Projects/pensive";
 pub const HARBOR: ProjectId = ProjectId(1);
 pub const LANTERN: ProjectId = ProjectId(2);
@@ -32,11 +33,20 @@ pub const DOTFILES: ProjectId = ProjectId(4);
 pub const ZED: ProjectId = ProjectId(5);
 
 /// Six projects with worktrees and branches of every age the palette groups by, read through
-/// `FakeGit`.
+/// `FakeGit`. Each main worktree's sample changes and files are already read.
 pub fn projects() -> Projects {
     let mut projects = projects_on(FakeGit::default());
-    projects.insert_changes(PENSIVE_ROOT.into(), changes());
-    projects.insert_files(PENSIVE_ROOT.into(), worktree_files());
+    let samples = FakeGit::default();
+    for (repository, _) in repositories() {
+        let root = repository.root;
+        let changes = samples
+            .changes(&root, usize::MAX)
+            .expect("a sample repository");
+        projects.want_earlier(root.clone(), usize::MAX);
+        let files = samples.files(&root).expect("a sample repository");
+        projects.insert_changes(root.clone(), changes);
+        projects.insert_files(root, files);
+    }
     let configs = crate::run_configs(fake_git::SAMPLE_PROJECT_FILE).expect("the sample parses");
     projects.insert_run_configs(PENSIVE, configs);
     projects

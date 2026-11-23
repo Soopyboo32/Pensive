@@ -1,5 +1,5 @@
-//! An on/off switch. The outline stays the same either way, and only the knob changes: it slides
-//! across and lights up when on.
+//! An on/off switch. The outline stays the same either way. When on, the knob slides across and
+//! lights up, and a fill as tall as the knob grows behind it.
 
 use std::{rc::Rc, time::Duration};
 
@@ -16,7 +16,7 @@ use crate::{
 const WIDTH: Dp = dp(34.);
 const HEIGHT: Dp = dp(20.);
 const KNOB: Dp = dp(16.);
-/// Between the knob and the outline, which takes the other pixel of the 2 px around the knob.
+/// Between the knob or fill and the outline, which takes the other pixel of the 2 px around them.
 const INSET: Dp = dp(1.);
 const SLIDE: Duration = Duration::from_millis(120);
 
@@ -58,28 +58,46 @@ impl RenderOnce for Toggle {
         let (off_knob, on_knob) = (colors.text_disabled, colors.text_strong);
         let hover_outline = colors.text_disabled;
         let left = |on: bool| if on { WIDTH - KNOB - INSET * 3. } else { INSET };
+        // Ends where the knob ends, so while off it hides under the knob.
+        let fill_width = |left: Dp| left + KNOB - INSET;
         let knob = div().absolute().top(INSET).size(KNOB).rounded_full();
-        let knob = if change.moved() {
+        let fill = div()
+            .absolute()
+            .top(INSET)
+            .left(INSET)
+            .h(KNOB)
+            .rounded_full()
+            .bg(colors.text_disabled);
+        let (knob, fill) = if change.moved() {
             let from = change.from;
-            knob.with_animation(
-                change.animation_id(&self.id, "knob"),
-                Animation::new(SLIDE).with_easing(ease_out_quint()),
-                move |knob, delta| {
-                    let toward = |a: Dp, b: Dp| a + (b - a) * delta;
-                    let (start, end) = if from {
-                        (on_knob, off_knob)
-                    } else {
-                        (off_knob, on_knob)
-                    };
-                    knob.left(toward(left(from), left(!from)))
-                        .bg(mix(start, end, delta))
-                },
+            let slide = || Animation::new(SLIDE).with_easing(ease_out_quint());
+            let toward = move |delta: f32| left(from) + (left(!from) - left(from)) * delta;
+            let (start, end) = if from {
+                (on_knob, off_knob)
+            } else {
+                (off_knob, on_knob)
+            };
+            (
+                knob.with_animation(
+                    change.animation_id(&self.id, "knob"),
+                    slide(),
+                    move |knob, delta| knob.left(toward(delta)).bg(mix(start, end, delta)),
+                )
+                .into_any_element(),
+                fill.with_animation(
+                    change.animation_id(&self.id, "fill"),
+                    slide(),
+                    move |fill, delta| fill.w(fill_width(toward(delta))),
+                )
+                .into_any_element(),
             )
-            .into_any_element()
         } else {
-            knob.left(left(self.on))
-                .bg(if self.on { on_knob } else { off_knob })
-                .into_any_element()
+            (
+                knob.left(left(self.on))
+                    .bg(if self.on { on_knob } else { off_knob })
+                    .into_any_element(),
+                fill.w(fill_width(left(self.on))).into_any_element(),
+            )
         };
         let on = self.on;
         div()
@@ -97,6 +115,7 @@ impl RenderOnce for Toggle {
             })
             .bg(colors.surface_app)
             .hover(|track| track.border_color(hover_outline))
+            .child(fill)
             .child(knob)
             .when_some(self.on_change, |track, handler| {
                 track.on_click(move |_: &ClickEvent, window, cx| {

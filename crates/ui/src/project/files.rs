@@ -1,9 +1,9 @@
 //! The rows of a list of changed files, as a list, a tree or by symbol.
 
 use components::{DiffStat, Icon, IconName, ListRow, RingFill, StatusRing, Tone, Tooltip};
-use gpui::{AnyElement, App, Context, ElementId, Hsla, Window, div, prelude::*};
+use gpui::{AnyElement, App, Context, ElementId, Window, div, prelude::*};
 use model::{FileChange, FileStatus, Staging, SymbolKind};
-use theme::{ActiveTheme, ThemeColors, dp};
+use theme::{ActiveTheme, ColorRole, IconSize};
 
 use crate::{view_callback, view_callback_with};
 
@@ -152,7 +152,7 @@ impl ProjectView {
         .when(symbol.kind != SymbolKind::Heading, ListRow::code)
         .leading(
             Icon::new(icon)
-                .size(dp(12.))
+                .size(IconSize::Small)
                 .color(cx.theme().colors.text_faint),
         )
         .trailing(DiffStat::new(symbol.added, symbol.removed))
@@ -168,7 +168,7 @@ impl ProjectView {
 }
 
 /// New files are green, changed or moved ones amber, and deleted or conflicted ones red.
-fn status_color(status: FileStatus) -> fn(&ThemeColors) -> Hsla {
+fn status_color(status: FileStatus) -> ColorRole {
     match status {
         FileStatus::Added | FileStatus::Untracked => |colors| colors.diff_added,
         FileStatus::Modified | FileStatus::Renamed => |colors| colors.diff_modified,

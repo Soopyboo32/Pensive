@@ -86,10 +86,34 @@ pub(crate) fn declare(cx: &mut App) {
 
 /// A fraction from a setting kept in percent.
 pub(crate) fn fraction(setting: &Setting<u32>, cx: &App) -> f32 {
-    setting.get(cx).min(100) as f32 / 100.
+    setting.get(cx) as f32 / 100.
 }
 
 /// The color that dims the window behind the palette.
 pub(crate) fn scrim(cx: &App) -> Hsla {
     hsla(0., 0., 0., fraction(&SCRIM, cx))
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[gpui::test]
+    fn opacity_and_scrim_outside_their_steps_are_reported(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            declare(cx);
+            let problems = Settings::load("[palette]\nopacity = 0\nscrim = 999\n", cx);
+            assert_eq!(
+                problems,
+                [
+                    settings::bad_value("palette.opacity", "expected one of 70, 80, 90, 100"),
+                    settings::bad_value("palette.scrim", "expected one of 0, 25, 50, 70"),
+                ]
+            );
+            assert_eq!(fraction(&OPACITY, cx), 1.);
+            assert_eq!(fraction(&SCRIM, cx), 0.5);
+        });
+    }
 }

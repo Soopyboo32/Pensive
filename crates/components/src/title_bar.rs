@@ -6,12 +6,16 @@ use gpui::{
     AnyElement, App, Div, ElementId, Entity, MouseButton, Pixels, Point, SharedString, Stateful,
     Window, WindowControlArea, div, point, prelude::*, px,
 };
-use theme::{ActiveTheme, Dp, HAIRLINE, Typeset, dp};
+use theme::{ActiveTheme, Dp, HAIRLINE, IconSize, Typeset, dp};
 
 use crate::{Breadcrumb, Callback, Icon, IconButton, IconName, Tone, callback};
 
 /// Room left of the crumbs for the macOS window buttons.
 const TRAFFIC_LIGHTS_WIDTH: Dp = dp(76.);
+/// The project's tile, which lines up with the rail's icons below it.
+const TILE: Dp = dp(20.);
+/// Inside a crumb, either side of what it holds.
+const CRUMB_PADDING: Dp = dp(6.);
 
 /// The project shown in the title bar.
 pub struct TitleBarProject {
@@ -130,7 +134,7 @@ impl RenderOnce for TitleBar {
                 .items_center()
                 .gap_2()
                 .h(dp(28.))
-                .px_1p5()
+                .px(CRUMB_PADDING)
                 .rounded(density.radius_md)
                 .hover(|crumb| crumb.bg(colors.surface_raised))
         };
@@ -152,7 +156,7 @@ impl RenderOnce for TitleBar {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .size(dp(20.))
+                        .size(TILE)
                         .rounded(density.radius_sm)
                         .bg(colors.surface_selected)
                         .text_color(colors.text_strong)
@@ -176,7 +180,7 @@ impl RenderOnce for TitleBar {
                         .gap_1p5()
                         .child(
                             Icon::new(IconName::GitBranch)
-                                .size(dp(14.))
+                                .size(IconSize::Medium)
                                 .color(colors.text_muted),
                         )
                         .child(
@@ -195,7 +199,7 @@ impl RenderOnce for TitleBar {
                     .chain(branch.map(IntoElement::into_any_element))
                     .chain(settings.take()),
             )
-            .chevron_size(dp(14.))
+            .chevron_size(IconSize::Medium)
             .into_any_element()
         });
         // With no project, Settings stands alone.
@@ -214,7 +218,7 @@ impl RenderOnce for TitleBar {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .children(tone.icon(14., colors))
+                        .children(tone.icon(IconSize::Medium, colors))
                         .child(count.to_string())
                 })
             };
@@ -274,7 +278,7 @@ impl RenderOnce for TitleBar {
             .flex_none()
             .items_center()
             .h(density.row_height + dp(12.))
-            .pl_2()
+            .pl(crate::rail::icon_center(cx) - TILE / 2. - CRUMB_PADDING)
             .pr_1()
             .when(cfg!(target_os = "macos"), |bar| {
                 bar.pl(TRAFFIC_LIGHTS_WIDTH)

@@ -3,11 +3,8 @@
 
 use std::{rc::Rc, time::Duration};
 
-use gpui::{
-    Animation, AnimationExt, AnyElement, App, ElementId, ScrollEvent, Task, Window, deferred, div,
-    prelude::*, relative,
-};
-use theme::{ActiveTheme, Dp, dp};
+use gpui::{AnyElement, App, ElementId, ScrollEvent, Task, Window, deferred, div, prelude::*};
+use theme::{Dp, IconSize, dp};
 
 use crate::{Callback, Icon, IconName, Tooltip, child_id};
 
@@ -19,8 +16,8 @@ const TRACKPAD_STEP: Dp = dp(24.);
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Phase {
     Idle,
-    /// The pointer arrived, and the wheel still scrolls the page. Counts arrivals, to key the
-    /// line that fills and to ignore a timer from an earlier one.
+    /// The pointer arrived, and the wheel still scrolls the page. Counts arrivals, to ignore a
+    /// timer from an earlier one.
     Resting(usize),
     Armed,
 }
@@ -42,8 +39,6 @@ pub struct ScrollToChange {
 }
 
 impl ScrollToChange {
-    /// `control` has the medium corner radius, as the dropdown, stepper and segmented control do,
-    /// which the armed outline follows.
     pub fn new(id: impl Into<ElementId>, control: impl IntoElement) -> Self {
         Self {
             id: id.into(),
@@ -53,7 +48,7 @@ impl ScrollToChange {
         }
     }
 
-    /// Shows the control as armed, outline and hint, for a mock. Resting on it does the same.
+    /// Shows the hint that the control is armed, for a mock. Resting on it does the same.
     pub fn armed(mut self, armed: bool) -> Self {
         self.armed = Some(armed);
         self
@@ -79,56 +74,26 @@ impl RenderOnce for ScrollToChange {
             Some(false) => Phase::Idle,
             None => state.read(cx).phase,
         };
-        let colors = &cx.theme().colors;
-        let radius = cx.density().radius_md;
-        let filling = match phase {
-            Phase::Resting(arrival) => Some(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_full()
-                    .mt(dp(3.))
-                    .h(dp(2.))
-                    .rounded_full()
-                    .bg(colors.text_faint)
-                    .with_animation(
-                        child_id(&self.id, format!("rest-{arrival}")),
-                        Animation::new(DWELL),
-                        |line, delta| line.w(relative(delta)),
-                    ),
-            ),
-            _ => None,
-        };
-        let armed = (phase == Phase::Armed).then(|| {
-            [
-                div()
-                    .absolute()
-                    .inset_0()
-                    .rounded(radius)
-                    .border_1()
-                    .border_color(colors.text_faint)
-                    .into_any_element(),
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .right_full()
-                    .mr_2()
-                    .flex()
-                    .items_center()
-                    .child(
-                        deferred(Tooltip::new(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_1p5()
-                                .child(Icon::new(IconName::ChevronsUpDown).size(dp(12.)))
-                                .child("Scroll to change"),
-                        ))
-                        .priority(1),
-                    )
-                    .into_any_element(),
-            ]
+        let hint = (phase == Phase::Armed).then(|| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right_full()
+                .mr_2()
+                .flex()
+                .items_center()
+                .child(
+                    deferred(Tooltip::new(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .child(Icon::new(IconName::ChevronsUpDown).size(IconSize::Small))
+                            .child("Scroll to change"),
+                    ))
+                    .priority(1),
+                )
         });
         let on_step = self.on_step;
         div()
@@ -136,8 +101,7 @@ impl RenderOnce for ScrollToChange {
             .relative()
             .flex_none()
             .child(self.control)
-            .children(filling)
-            .children(armed.into_iter().flatten())
+            .children(hint)
             .on_hover({
                 let state = state.clone();
                 move |hovered, _, cx| {

@@ -1,5 +1,5 @@
-//! One setting in a card: its name and description, its control, and once it's changed, its
-//! default and a button that goes back to it.
+//! One setting in a card: its name and description, its control, and once it's changed, a button
+//! before the control that goes back to the default.
 
 use std::ops::Range;
 
@@ -45,7 +45,7 @@ impl SettingRow {
         self
     }
 
-    /// Marks the setting as changed, showing the label of its default before the control.
+    /// Marks the setting as changed. The reset button's tooltip names `default`.
     pub fn changed_from(mut self, default: Option<SharedString>) -> Self {
         self.default = default;
         self
@@ -61,15 +61,13 @@ impl RenderOnce for SettingRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = &cx.theme().colors;
         let density = cx.density();
-        // The reset button's slot is kept on every row, so the controls in a card line up.
-        let slot = dp(20.);
-        let reset = match (&self.default, self.on_reset) {
-            (Some(_), Some(handler)) => IconButton::new("reset", IconName::RotateCcw)
-                .size(slot)
+        let reset = self.default.zip(self.on_reset).map(|(default, handler)| {
+            IconButton::new("reset", IconName::RotateCcw)
+                .size(dp(20.))
+                .hover_fill(|colors| colors.surface_selected)
+                .tooltip(format!("Reset to {default}"))
                 .on_click(move |window, cx| handler((), window, cx))
-                .into_any_element(),
-            _ => div().flex_none().w(slot).into_any_element(),
-        };
+        });
         let name =
             StyledText::new(self.name).with_highlights(self.matches.into_iter().map(|range| {
                 (
@@ -104,18 +102,15 @@ impl RenderOnce for SettingRow {
                             .child(self.description),
                     ),
             )
-            .children(self.default.map(|default| {
+            .child(
                 div()
                     .flex()
                     .flex_none()
-                    .gap_1()
-                    .typeset(density.small)
-                    .text_color(colors.text_faint)
-                    .child("Default")
-                    .child(div().text_color(colors.text_muted).child(default))
-            }))
-            .child(div().flex_none().child(self.control))
-            .child(reset)
+                    .items_center()
+                    .gap_2()
+                    .children(reset)
+                    .child(self.control),
+            )
     }
 }
 
@@ -140,7 +135,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                         SettingRow::new(
                             "density",
                             "Density",
-                            "Calm has larger text and 28 px rows",
+                            "Calm has larger text and 30 px rows",
                             SegmentedControl::new("density-control", ["Calm", "Dense"], Some(1)),
                         )
                         .changed_from(Some("Calm".into()))

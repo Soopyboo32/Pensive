@@ -4,8 +4,8 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, ElementId, Hsla, SharedString, Window, deferred, div, prelude::*};
-use theme::{ActiveTheme, Density, Dp, HAIRLINE, ThemeColors, Typeset, dp};
+use gpui::{AnyElement, App, ElementId, SharedString, Window, deferred, div, prelude::*};
+use theme::{ActiveTheme, ColorRole, Density, Dp, HAIRLINE, Typeset, dp};
 
 use crate::{Callback, Icon, IconName, callback};
 
@@ -17,7 +17,7 @@ pub struct ListRow {
     disclosure: Option<bool>,
     leading: Option<AnyElement>,
     label: SharedString,
-    label_color: Option<fn(&ThemeColors) -> Hsla>,
+    label_color: Option<ColorRole>,
     code: bool,
     muted: bool,
     dimmed: bool,
@@ -92,7 +92,7 @@ impl ListRow {
     }
 
     /// The label's color, such as a file's Git status, unless the row is dimmed.
-    pub fn label_color(mut self, color: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn label_color(mut self, color: ColorRole) -> Self {
         self.label_color = Some(color);
         self
     }
@@ -227,7 +227,7 @@ impl RenderOnce for ListRow {
                     } else {
                         IconName::ChevronRight
                     })
-                    .size(mark)
+                    .exact_size(mark)
                     .color(if self.dimmed {
                         colors.text_disabled
                     } else {
@@ -297,6 +297,8 @@ impl RenderOnce for ListRow {
 
 #[cfg(feature = "mocks")]
 pub(crate) fn mocks() -> Vec<mock::Mock> {
+    use theme::IconSize;
+
     use crate::{DiffStat, RingFill, StatusMark, StatusRing, Tooltip, gallery::Panel};
 
     fn tree() -> Vec<ListRow> {
@@ -375,7 +377,9 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                                     .depth(1)
                                     .compact()
                                     .code()
-                                    .leading(crate::Icon::new(IconName::Braces).size(dp(12.)))
+                                    .leading(
+                                        crate::Icon::new(IconName::Braces).size(IconSize::Small),
+                                    )
                                     .trailing(DiffStat::new(9, 2)),
                             ]),
                         ),

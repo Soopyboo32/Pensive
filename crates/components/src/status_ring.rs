@@ -1,8 +1,8 @@
 //! A ring in a status color that fills to show how much of something is staged.
 
-use gpui::{App, ElementId, Hsla, Window, div, prelude::*};
+use gpui::{App, ElementId, Window, div, prelude::*};
 use strum::{IntoStaticStr, VariantArray};
-use theme::{ActiveTheme, Dp, ThemeColors, dp};
+use theme::{ActiveTheme, ColorRole, Dp, dp};
 
 use crate::{Callback, OnClick as _, callback};
 
@@ -18,7 +18,7 @@ pub enum RingFill {
 pub struct StatusRing {
     id: ElementId,
     fill: RingFill,
-    color: fn(&ThemeColors) -> Hsla,
+    color: ColorRole,
     size: Dp,
     on_click: Option<Callback<()>>,
 }
@@ -36,7 +36,7 @@ impl StatusRing {
     }
 
     /// Picks the color role, such as `|colors| colors.diff_added`.
-    pub fn color(mut self, color: fn(&ThemeColors) -> Hsla) -> Self {
+    pub fn color(mut self, color: ColorRole) -> Self {
         self.color = color;
         self
     }
@@ -84,7 +84,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
     }
 
     impl Status {
-        fn color(self) -> fn(&ThemeColors) -> Hsla {
+        fn color(self) -> ColorRole {
             match self {
                 Status::Added => |colors| colors.diff_added,
                 Status::Modified => |colors| colors.diff_modified,

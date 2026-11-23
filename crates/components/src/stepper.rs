@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use gpui::{App, ElementId, SharedString, Window, div, prelude::*};
-use theme::{ActiveTheme, Typeset, dp};
+use theme::{ActiveTheme, IconSize, Typeset, dp};
 
 use crate::{Callback, Icon, IconName};
 
@@ -55,7 +55,7 @@ impl RenderOnce for Stepper {
                 .items_center()
                 .justify_center()
                 .w(density.row_height)
-                .child(Icon::new(icon).size(dp(14.)).color(if stopped {
+                .child(Icon::new(icon).size(IconSize::Medium).color(if stopped {
                     colors.text_disabled
                 } else {
                     colors.text_muted
@@ -127,7 +127,7 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                     "Values",
                     [
                         ("Zoom", "110%"),
-                        ("Code size", "13 px"),
+                        ("Code size", "14 px"),
                         ("Toast", "3 seconds"),
                     ]
                     .map(|(label, value)| (label, Stepper::new(label, value).into_any_element())),

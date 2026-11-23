@@ -1,5 +1,5 @@
 //! The settings view: a rail of categories, the current category's pages, and that category's
-//! settings in a scroll the list follows, with a search across every category.
+//! settings in a scroll the list follows down to the setting, with a search across every category.
 
 #[cfg(feature = "mocks")]
 mod mocks;
@@ -8,7 +8,12 @@ mod page;
 mod search;
 mod sidebar;
 
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+    time::Duration,
+};
 
 use components::NextCard;
 use gpui::{
@@ -35,7 +40,7 @@ use crate::{
 actions!(settings_view, [Dismiss, FocusSearch]);
 
 const CONTEXT: &str = "SettingsView";
-/// A page becomes current once its heading crosses this far below the top of the page.
+/// A page or a setting becomes current once its top crosses this far below the top of the page.
 const TRACKING_LINE: Dp = dp(60.);
 /// Rows stop here, so a control stays near its name on a wide window. PEN-40 revisits it.
 const READING_WIDTH: Dp = dp(680.);
@@ -43,7 +48,8 @@ const READING_WIDTH: Dp = dp(680.);
 const CLICK_GLIDE: Duration = Duration::from_millis(200);
 /// How long a wheel notch takes to glide. A trackpad moves the page as it reports.
 const WHEEL_GLIDE: Duration = Duration::from_millis(150);
-/// How long the list's highlight and the rail's fill take to slide, with a frame to spare.
+/// How long the list's highlight, the rail's fill and the rail's width take to slide, with a
+/// frame to spare.
 const SLIDE: Duration = Duration::from_millis(170);
 /// When the category changes, its old list and page fade out, then the new ones fade in.
 const CATEGORY_OUT: Duration = Duration::from_millis(100);
@@ -65,7 +71,7 @@ pub(crate) enum SettingsEvent {
 }
 
 /// A page within a category, by their places in the outline.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Spot {
     category: usize,
     page: usize,
@@ -89,25 +95,27 @@ enum Anchor {
 /// What to show once every page is laid out again, such as after a search.
 #[derive(Clone, Copy)]
 enum Pending {
-    Spot(Spot),
+    /// A page's top, or one of its settings.
+    Spot(Spot, Option<usize>),
     /// Where the page was scrolled to before the search.
     Offset(Pixels),
 }
 
-/// The buttons at the rail's foot, which have nothing behind them yet.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tool {
-    OpenFile,
-    ShowNames,
+/// What a click scrolled to, which stays current instead of what the scroll passes.
+#[derive(Clone, Copy)]
+enum Pin {
+    /// Until the glide lands, so the list doesn't step through the pages on the way.
+    Page,
+    /// Until the wheel moves the page, since a setting can't always reach the tracking line.
+    Setting,
 }
 
-impl Tool {
-    fn notice(self) -> Notice {
-        Notice::not_wired(match self {
-            Tool::OpenFile => "Opening settings.toml",
-            Tool::ShowNames => "Showing names on the rail",
-        })
-    }
+/// The buttons at the rail's foot, other than the gear.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tool {
+    /// Has nothing behind it yet, so it answers with a notice.
+    OpenFile,
+    ShowNames,
 }
 
 pub(crate) struct SettingsView {
@@ -117,22 +125,25 @@ pub(crate) struct SettingsView {
     /// The scroll's children as of the last render, which the scroll's bounds describe.
     anchors: Vec<Anchor>,
     current: Spot,
-    /// Where the current page was before, which the list and the rail slide from, until the
-    /// slide is over.
-    previous: Option<(Spot, Task<()>)>,
+    /// Which of the current page's settings is being read.
+    reading: usize,
+    /// The page and setting that were current, which the list and the rail slide from, until
+    /// the slide is over.
+    previous: Option<(Spot, usize, Task<()>)>,
     /// The category fading out after a change, with where its page was scrolled to.
     fading: Option<(usize, Pixels, Task<()>)>,
     /// Counts category changes, so each one's fade starts over.
     changes: usize,
-    /// Where a click scrolled to. It stays current until the glide lands, so the list doesn't
-    /// step through the pages on the way.
-    pinned: Option<Spot>,
+    pinned: Option<Pin>,
     /// Whether the next card is docked, or `None` until the category's settings are measured.
     docked: Option<bool>,
     /// Docks or hides the next card at once on its next change, as after a jump.
     dock_snap: bool,
     /// Where the category's settings end as last painted, unscrolled, with the category.
     settings_end: Rc<Cell<Option<(usize, Pixels)>>>,
+    /// Where each setting of the current category starts as last painted, unscrolled, by its
+    /// page and its place on it.
+    setting_tops: Rc<RefCell<HashMap<(Spot, usize), Pixels>>>,
     /// The next card docking or leaving, until it's done.
     docking: Option<Task<()>>,
     /// Counts the next card's moves, so each one's slide starts over.
@@ -145,6 +156,12 @@ pub(crate) struct SettingsView {
     hovered_tool: Option<Tool>,
     gear_hovered: bool,
     notice: Option<(Tool, Notice, Task<()>)>,
+    /// Whether the rail names its buttons, which fills the room beside a short list of pages.
+    names: bool,
+    /// Counts the names' toggles, so each one's slide starts over.
+    names_toggles: usize,
+    /// The rail sliding to its new width, until it's done.
+    names_sliding: Option<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
 
@@ -181,6 +198,7 @@ impl SettingsView {
             scroll: SmoothScroll::new(),
             anchors: Vec::new(),
             current: Spot::START,
+            reading: 0,
             previous: None,
             fading: None,
             changes: 0,
@@ -188,6 +206,7 @@ impl SettingsView {
             docked: None,
             dock_snap: true,
             settings_end: Rc::default(),
+            setting_tops: Rc::default(),
             docking: None,
             dock_moves: 0,
             pending: None,
@@ -196,6 +215,9 @@ impl SettingsView {
             hovered_tool: None,
             gear_hovered: false,
             notice: None,
+            names: true,
+            names_toggles: 0,
+            names_sliding: None,
             _subscriptions: [typed, changed],
         }
     }
@@ -210,10 +232,10 @@ impl SettingsView {
             .map_or(self.current.category, |(category, _)| category)
     }
 
-    /// Makes `spot` current. When `slide`, the list and the rail move to it from the old one, as
-    /// they should when the page scrolls. A jump just shows it.
-    fn set_current(&mut self, spot: Spot, slide: bool, cx: &mut Context<Self>) {
-        if spot == self.current {
+    /// Makes `reading` of `spot` current. When `slide`, the list and the rail move to it from the
+    /// old one, as they should when the page scrolls. A jump just shows it.
+    fn set_current(&mut self, spot: Spot, reading: usize, slide: bool, cx: &mut Context<Self>) {
+        if spot == self.current && reading == self.reading {
             return;
         }
         if spot.category != self.current.category || !slide {
@@ -225,6 +247,7 @@ impl SettingsView {
             self.fading = None;
             self.dock_snap = true;
             self.current = spot;
+            self.reading = reading;
             return;
         }
         if spot.category != self.current.category {
@@ -238,21 +261,27 @@ impl SettingsView {
             self.changes += 1;
         }
         let done = clear_after(SLIDE, |view: &mut Self| view.previous = None, cx);
-        self.previous = Some((self.current, done));
+        self.previous = Some((self.current, self.reading, done));
         self.current = spot;
+        self.reading = reading;
     }
 
     /// Makes current the last page whose heading is above the tracking line, as the scroll was
-    /// last laid out. The last page can always reach it, since the page leaves room below it.
+    /// last laid out, and the setting being read on it. The last page can always reach the line,
+    /// since the page leaves room below it.
     fn track(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let gliding_to_click = self.pinned.is_some() && self.scroll.is_gliding();
-        if self.search_from.is_some() || gliding_to_click {
+        let held = match self.pinned {
+            Some(Pin::Setting) => true,
+            Some(Pin::Page) => self.scroll.is_gliding(),
+            None => false,
+        };
+        if self.search_from.is_some() || held {
             return;
         }
         self.pinned = None;
         let scroll = self.scroll.handle();
-        let line =
-            scroll.bounds().top() - scroll.offset().y + TRACKING_LINE.to_pixels(window.rem_size());
+        let tracking = TRACKING_LINE.to_pixels(window.rem_size());
+        let line = scroll.bounds().top() - scroll.offset().y + tracking;
         let category = self.current.category;
         let mut current = None;
         for (index, anchor) in self.anchors.iter().enumerate() {
@@ -267,30 +296,88 @@ impl SettingsView {
                 .bounds_for_item(index)
                 .is_some_and(|bounds| bounds.top() <= line);
             if reached || current.is_none() {
-                current = Some(spot);
+                current = Some((index, spot));
             }
         }
-        if let Some(spot) = current {
-            self.set_current(spot, true, cx);
+        if let Some((index, spot)) = current {
+            let reading = self.setting_at(spot, index, tracking);
+            self.set_current(spot, reading, true, cx);
         }
     }
 
-    /// Scrolls so `anchor` is at the top, and makes `spot` current.
-    fn scroll_to(&mut self, anchor: Anchor, spot: Spot, smooth: bool, cx: &mut Context<Self>) {
+    /// The last of `spot`'s settings above the tracking line. `spot` is the scroll's child `item`.
+    /// The scroll ends before the last page's lower settings reach the line, so over that page
+    /// the line sweeps down to meet them.
+    fn setting_at(&self, spot: Spot, item: usize, tracking: Pixels) -> usize {
+        let tops = self.setting_tops.borrow();
+        let tops: Vec<Pixels> = (0..)
+            .map_while(|setting| tops.get(&(spot, setting)).copied())
+            .collect();
         let scroll = self.scroll.handle();
-        let index = self.anchors.iter().position(|known| *known == anchor);
-        let Some(item) = index.and_then(|index| scroll.bounds_for_item(index)) else {
-            return;
-        };
-        let to = scroll.bounds().top() - item.top();
-        self.set_current(spot, smooth, cx);
-        self.pinned = Some(spot);
+        let start = scroll.bounds().top() + tracking;
+        let scrolled = -scroll.offset().y;
+        let mut line = start + scrolled;
+        let last_page = item + 1 == self.anchors.len();
+        if let (true, Some(last), Some(page)) =
+            (last_page, tops.last(), scroll.bounds_for_item(item))
+        {
+            let most = scroll.max_offset().y;
+            let arrives = (page.top() - start).max(Pixels::ZERO);
+            let short = *last - (start + most);
+            if short > Pixels::ZERO && most > arrives {
+                line += short * ((scrolled - arrives) / (most - arrives)).clamp(0., 1.);
+            }
+        }
+        tops.iter().rposition(|top| *top <= line).unwrap_or(0)
+    }
+
+    /// Scrolls to offset `to` and makes `reading` of `spot` current until `pin` lets go.
+    fn scroll_to(
+        &mut self,
+        to: Pixels,
+        (spot, reading): (Spot, usize),
+        pin: Pin,
+        smooth: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_current(spot, reading, smooth, cx);
+        self.pinned = Some(pin);
         if smooth {
             self.scroll.glide_to(to, CLICK_GLIDE, cx);
         } else {
             self.scroll.jump_to(to);
         }
         cx.notify();
+    }
+
+    /// Scrolls so `spot`'s page is at the top.
+    fn scroll_to_page(&mut self, spot: Spot, smooth: bool, cx: &mut Context<Self>) {
+        let scroll = self.scroll.handle();
+        let anchor = Anchor::Page(spot);
+        let index = self.anchors.iter().position(|known| *known == anchor);
+        let Some(item) = index.and_then(|index| scroll.bounds_for_item(index)) else {
+            return;
+        };
+        let to = scroll.bounds().top() - item.top();
+        self.scroll_to(to, (spot, 0), Pin::Page, smooth, cx);
+    }
+
+    /// Scrolls `setting` of `spot` to the tracking line, leaving its page's heading in view.
+    /// Returns false when the setting hasn't been painted yet.
+    fn scroll_to_setting(
+        &mut self,
+        spot: Spot,
+        setting: usize,
+        smooth: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(top) = self.setting_tops.borrow().get(&(spot, setting)).copied() else {
+            return false;
+        };
+        let line = self.scroll.handle().bounds().top() + TRACKING_LINE.to_pixels(window.rem_size());
+        self.scroll_to(line - top, (spot, setting), Pin::Setting, smooth, cx);
+        true
     }
 
     /// A wheel notch glides the page, and a trackpad moves it as it reports. Either way the page
@@ -311,33 +398,64 @@ impl SettingsView {
     fn show_category(&mut self, category: usize, cx: &mut Context<Self>) {
         let spot = Spot { category, page: 0 };
         if self.search_from.is_some() {
-            return self.show_after_search(spot, cx);
+            return self.show_after_search(spot, None, cx);
         }
         if category == self.current.category {
-            return self.scroll_to(Anchor::Page(spot), spot, true, cx);
+            return self.scroll_to_page(spot, true, cx);
         }
         self.pinned = None;
-        self.set_current(spot, true, cx);
+        self.set_current(spot, 0, true, cx);
         self.scroll.jump_to(Pixels::ZERO);
         cx.notify();
     }
 
-    fn show_page(&mut self, spot: Spot, cx: &mut Context<Self>) {
-        self.scroll_to(Anchor::Page(spot), spot, true, cx);
+    /// Shows `category` from its top at once, as opening Settings from a control that names it
+    /// does.
+    pub(crate) fn jump_to_category(
+        &mut self,
+        category: &settings::Category,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(category) = outline(cx)
+            .iter()
+            .position(|known| known.name == category.name())
+        else {
+            return;
+        };
+        let spot = Spot { category, page: 0 };
+        if self.search_from.is_some() {
+            self.show_after_search(spot, None, cx);
+        } else {
+            self.jump_to(spot, None, cx);
+        }
     }
 
-    /// Shows `spot` without a glide, once its category is laid out.
-    fn jump_to(&mut self, spot: Spot, cx: &mut Context<Self>) {
-        self.set_current(spot, false, cx);
-        self.pending = Some(Pending::Spot(spot));
+    fn show_page(&mut self, spot: Spot, cx: &mut Context<Self>) {
+        self.scroll_to_page(spot, true, cx);
+    }
+
+    fn show_setting(
+        &mut self,
+        spot: Spot,
+        setting: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_to_setting(spot, setting, true, window, cx);
+    }
+
+    /// Shows `spot`, or `setting` on it, without a glide, once its category is laid out.
+    fn jump_to(&mut self, spot: Spot, setting: Option<usize>, cx: &mut Context<Self>) {
+        self.set_current(spot, setting.unwrap_or(0), false, cx);
+        self.pending = Some(Pending::Spot(spot, setting));
         cx.notify();
     }
 
-    /// Clears the search and shows `spot` in its category.
-    fn show_after_search(&mut self, spot: Spot, cx: &mut Context<Self>) {
+    /// Clears the search and shows `spot`, or `setting` on it, in its category.
+    fn show_after_search(&mut self, spot: Spot, setting: Option<usize>, cx: &mut Context<Self>) {
         self.search_from = None;
         self.search.update(cx, |input, cx| input.set_text("", cx));
-        self.jump_to(spot, cx);
+        self.jump_to(spot, setting, cx);
     }
 
     /// Whether the category's settings end above the docked card's room, as last painted.
@@ -367,7 +485,7 @@ impl SettingsView {
 
     /// Shows what's pending once the scroll's last layout had every page in it, so its bounds
     /// and how far it can scroll are the full page's.
-    fn show_pending(&mut self, cx: &mut Context<Self>) {
+    fn show_pending(&mut self, window: &Window, cx: &mut Context<Self>) {
         let Some(pending) = self.pending else { return };
         let laid_out = self.scroll.handle().children_count() == self.anchors.len()
             && self
@@ -381,7 +499,13 @@ impl SettingsView {
         }
         self.pending = None;
         match pending {
-            Pending::Spot(spot) => self.scroll_to(Anchor::Page(spot), spot, false, cx),
+            Pending::Spot(spot, None) => self.scroll_to_page(spot, false, cx),
+            Pending::Spot(spot, Some(setting)) => {
+                if !self.scroll_to_setting(spot, setting, false, window, cx) {
+                    self.pending = Some(pending);
+                    cx.notify();
+                }
+            }
             Pending::Offset(offset) => {
                 self.scroll.jump_to(offset);
                 cx.notify();
@@ -390,9 +514,25 @@ impl SettingsView {
     }
 
     fn use_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
-        let clear = clear_after(NOTICE_FOR, |view: &mut Self| view.notice = None, cx);
-        self.notice = Some((tool, tool.notice(), clear));
+        match tool {
+            Tool::OpenFile => {
+                let clear = clear_after(NOTICE_FOR, |view: &mut Self| view.notice = None, cx);
+                let notice = Notice::not_wired("Opening settings.toml");
+                self.notice = Some((tool, notice, clear));
+            }
+            Tool::ShowNames => {
+                self.names = !self.names;
+                self.names_toggles += 1;
+                let done = clear_after(SLIDE, |view: &mut Self| view.names_sliding = None, cx);
+                self.names_sliding = Some(done);
+            }
+        }
         cx.notify();
+    }
+
+    /// Whether the rail's buttons show their names, which they keep while the rail narrows.
+    fn names_shown(&self) -> bool {
+        self.names || self.names_sliding.is_some()
     }
 
     fn dismiss(&mut self, _: &Dismiss, _: &mut Window, cx: &mut Context<Self>) {
@@ -533,6 +673,25 @@ impl SettingsView {
         .into_any_element()
     }
 
+    /// A line at the top of a setting's row, which notes where the row is when painted. A new
+    /// place draws again, so the list can follow it.
+    fn setting_marker(&self, spot: Spot, setting: usize) -> AnyElement {
+        let (tops, scroll) = (self.setting_tops.clone(), self.scroll.handle().clone());
+        canvas(
+            move |bounds, window, _| {
+                let top = (bounds.top() - scroll.offset().y).round();
+                if tops.borrow_mut().insert((spot, setting), top) != Some(top) {
+                    window.refresh();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .w_full()
+        .into_any_element()
+    }
+
     /// The card that leads to `next`, docked under the page with the page fading out above it.
     fn next_card(
         &self,
@@ -603,7 +762,7 @@ impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let outline = outline(cx);
         self.track(window, cx);
-        self.show_pending(cx);
+        self.show_pending(window, cx);
         let query = self.query(cx);
         let hits = (!query.is_empty()).then(|| search(&outline, &query, self.home()));
         let blocks = match &hits {
@@ -715,6 +874,30 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_palettes_gear_opens_the_palettes_settings(cx: &mut TestAppContext) {
+        let (root, cx) = pensive_window(cx);
+        cx.dispatch_action(crate::root::OpenPalette);
+        cx.run_until_parked();
+        let gear = cx.debug_bounds("palette-settings").unwrap();
+        cx.simulate_click(gear.center(), Modifiers::none());
+        settle(cx);
+        let view = root.read_with(cx, |pensive, _| pensive.settings_view().unwrap());
+        let palette = view.update(cx, |_, cx| {
+            outline(cx)
+                .iter()
+                .position(|category| category.name == crate::palette::CATEGORY.name())
+                .unwrap()
+        });
+        assert_eq!(
+            current(&view, cx),
+            Spot {
+                category: palette,
+                page: 0
+            }
+        );
+    }
+
+    #[gpui::test]
     fn clicking_any_page_scrolls_it_to_the_top(cx: &mut TestAppContext) {
         let (view, cx) = settings_window(cx);
         let pages: Vec<usize> = view.update(cx, |_, cx| {
@@ -757,6 +940,40 @@ mod tests {
                 page: last
             }
         );
+    }
+
+    #[gpui::test]
+    fn the_wheel_reaches_the_last_setting_of_a_category(cx: &mut TestAppContext) {
+        let (view, cx) = settings_window(cx);
+        settle(cx);
+        scroll(ScrollDelta::Pixels(point(px(0.), px(-10_000.))), cx);
+        settle(cx);
+        let (reading, last) = view.update(cx, |view, cx| {
+            let page = view.current.page;
+            (view.reading, outline(cx)[0].pages[page].settings.len() - 1)
+        });
+        assert_eq!(reading, last);
+    }
+
+    #[gpui::test]
+    fn a_clicked_setting_stays_current_until_the_wheel_moves(cx: &mut TestAppContext) {
+        let (view, cx) = settings_window(cx);
+        settle(cx);
+        let spot = Spot {
+            category: 0,
+            page: 1,
+        };
+        view.update_in(cx, |view, window, cx| {
+            view.show_setting(spot, 2, window, cx)
+        });
+        settle(cx);
+        let shown =
+            |cx: &mut VisualTestContext| view.read_with(cx, |view, _| (view.current, view.reading));
+        assert_eq!(shown(cx), (spot, 2));
+
+        scroll(ScrollDelta::Pixels(point(px(0.), px(30.))), cx);
+        settle(cx);
+        assert_ne!(shown(cx), (spot, 2));
     }
 
     #[gpui::test]

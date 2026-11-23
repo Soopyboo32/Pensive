@@ -16,13 +16,13 @@ use model::{
 
 use crate::{GitCli, parse};
 
-/// Commits listed past the base, or on the base branch itself, so a long-lived branch still
-/// reads quickly.
+/// The most commits listed from the branch, or from the base where the branch started, so a
+/// long-lived branch still reads quickly.
 const MAX_COMMITS: usize = 100;
 /// An untracked file larger than this counts no lines, rather than being read to count them.
 const MAX_COUNTED_BYTES: u64 = 4 * 1024 * 1024;
 
-pub(crate) fn changes(cli: &GitCli, worktree: &Path) -> Result<Changes> {
+pub(crate) fn changes(cli: &GitCli, worktree: &Path, earlier: usize) -> Result<Changes> {
     let head = text(
         cli.git(worktree, &["rev-parse", "-q", "--verify", "HEAD"])
             .ok(),
@@ -52,29 +52,30 @@ pub(crate) fn changes(cli: &GitCli, worktree: &Path) -> Result<Changes> {
         }
         None => None,
     };
-    let limit = format!("--max-count={MAX_COMMITS}");
-    let mut range = vec![limit, head];
-    if let Some((_, references)) = &base {
-        range.extend(references.iter().map(|reference| format!("^{reference}")));
-    }
-    range.push("--".to_owned());
-    let args = [
-        parse::LOG,
-        &range.iter().map(String::as_str).collect::<Vec<_>>(),
-    ]
-    .concat();
-    let commits = parse::log(&cli.git(worktree, &args)?)
-        .into_iter()
-        .map(|logged| Commit {
-            pushed: unpushed
+    let excluded = base.iter().flat_map(|(_, references)| references);
+    let commits = log(
+        cli,
+        worktree,
+        MAX_COMMITS,
+        std::iter::once(head.clone()).chain(excluded.map(|reference| format!("^{reference}"))),
+        |sha| {
+            unpushed
                 .as_ref()
-                .is_some_and(|unpushed| !unpushed.contains(&logged.sha)),
-            sha: logged.sha.into(),
-            title: logged.title.into(),
-            description: logged.description.map(Into::into),
-            files: logged.files,
-        })
-        .collect();
+                .is_some_and(|unpushed| !unpushed.contains(sha))
+        },
+    )?;
+    let earlier = match &base {
+        Some((_, references)) if earlier > 0 => {
+            let mut merge_base = vec!["merge-base", head.as_str()];
+            merge_base.extend(references.iter().map(String::as_str));
+            // Unrelated histories have no commit in common, and so nothing earlier.
+            match text(cli.git(worktree, &merge_base).ok()) {
+                Some(start) => log(cli, worktree, earlier.min(MAX_COMMITS), [start], |_| true)?,
+                None => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    };
     Ok(Changes {
         base: base.map(|(branch, _)| Base {
             branch: branch.into(),
@@ -85,7 +86,32 @@ pub(crate) fn changes(cli: &GitCli, worktree: &Path) -> Result<Changes> {
         }),
         uncommitted,
         commits,
+        earlier,
     })
+}
+
+/// Up to `count` commits in `range`, newest first, with `pushed` telling which the upstream has.
+fn log(
+    cli: &GitCli,
+    worktree: &Path,
+    count: usize,
+    range: impl IntoIterator<Item = String>,
+    pushed: impl Fn(&str) -> bool,
+) -> Result<Vec<Commit>> {
+    let mut args: Vec<String> = parse::LOG.iter().map(|arg| arg.to_string()).collect();
+    args.push(format!("--max-count={count}"));
+    args.extend(range);
+    args.push("--".to_owned());
+    Ok(parse::log(&cli.git(worktree, &args)?)
+        .into_iter()
+        .map(|logged| Commit {
+            pushed: pushed(&logged.sha),
+            sha: logged.sha.into(),
+            title: logged.title.into(),
+            description: logged.description.map(Into::into),
+            files: logged.files,
+        })
+        .collect())
 }
 
 /// Each changed file with its line counts against HEAD, staged and unstaged together.

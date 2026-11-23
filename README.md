@@ -37,9 +37,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Documentation
 
 - [Architecture](docs/architecture.md): how the code is organized
-- [Design](docs/design.md): how Pensive looks and why
+- [Design](docs/design.md): the feel Pensive aims for
 - [Glossary](docs/glossary.md): what terms like view, component and mock mean here
 
 ## License
 
-[MPL-2.0](LICENSE)
+[FSL-1.1-ALv2](LICENSE)

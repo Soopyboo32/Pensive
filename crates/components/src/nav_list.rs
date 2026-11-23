@@ -1,5 +1,5 @@
-//! The list beside the settings rail: a category's pages on a guide line, with the current page
-//! highlighted and the highlight sliding when it changes.
+//! The list beside the settings rail: rows on a guide line, some nested under the row above, with
+//! the current row highlighted and the highlight sliding when it changes.
 
 use std::{ops::Range, rc::Rc, time::Duration};
 
@@ -17,14 +17,16 @@ const SLIDE: Duration = Duration::from_millis(150);
 const GUIDE: Dp = dp(10.);
 /// Where a label starts, past the guide.
 const LABEL: Dp = dp(22.);
+/// How much further a nested row's label starts.
+const NESTED: Dp = dp(12.);
 
 /// One row of the list.
 pub struct NavItem {
     pub label: SharedString,
     /// Byte ranges of `label` that matched a search.
     pub matches: Vec<Range<usize>>,
-    /// Faint text at the right edge, such as the category of a search result.
-    pub trailing: Option<SharedString>,
+    /// Whether the row sits under the nearest row above that isn't nested.
+    pub nested: bool,
 }
 
 impl NavItem {
@@ -32,8 +34,13 @@ impl NavItem {
         Self {
             label: label.into(),
             matches: Vec::new(),
-            trailing: None,
+            nested: false,
         }
+    }
+
+    pub fn nested(mut self) -> Self {
+        self.nested = true;
+        self
     }
 }
 
@@ -124,6 +131,11 @@ impl RenderOnce for NavList {
             color: Some(colors.accent_fg),
             ..Default::default()
         };
+        // The row a selected nested row sits under reads as current too.
+        let parent = self
+            .selected
+            .filter(|selected| self.items.get(*selected).is_some_and(|item| item.nested))
+            .and_then(|selected| self.items[..selected].iter().rposition(|item| !item.nested));
         let rows = self.items.into_iter().enumerate().map(|(index, item)| {
             let selected = self.selected == Some(index);
             let on_select = self.on_select.clone();
@@ -132,9 +144,8 @@ impl RenderOnce for NavList {
                 .relative()
                 .flex()
                 .items_center()
-                .gap_2()
                 .h(height)
-                .pl(LABEL)
+                .pl(if item.nested { LABEL + NESTED } else { LABEL })
                 .pr_2p5()
                 .rounded(density.radius_md)
                 .when(!selected, |row| {
@@ -151,9 +162,11 @@ impl RenderOnce for NavList {
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .typeset(density.body)
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if selected {
+                        .when(!item.nested, |label| label.font_weight(FontWeight::MEDIUM))
+                        .text_color(if selected || parent == Some(index) {
                             colors.text_strong
+                        } else if item.nested {
+                            colors.text_muted
                         } else {
                             colors.text
                         })
@@ -161,13 +174,6 @@ impl RenderOnce for NavList {
                             item.matches.into_iter().map(|range| (range, match_style)),
                         )),
                 )
-                .children(item.trailing.map(|trailing| {
-                    div()
-                        .flex_none()
-                        .typeset(density.small)
-                        .text_color(colors.text_faint)
-                        .child(trailing)
-                }))
                 .when_some(on_select, |row, handler| {
                     row.on_click(move |_, window, cx| handler(index, window, cx))
                 })
@@ -197,24 +203,41 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
             )
             .into_any_element()
     }
-    fn results() -> AnyElement {
-        let item = |label: &str, matched: Range<usize>, trailing: &str| NavItem {
-            label: label.to_string().into(),
-            matches: vec![matched],
-            trailing: Some(trailing.to_string().into()),
-        };
+    fn nested() -> AnyElement {
         div()
             .w(dp(228.))
             .child(
                 NavList::new(
-                    "results",
+                    "nested",
                     vec![
-                        item("Show tabs", 0..4, "Command palette"),
-                        item("Toast duration", 0..5, "Notices"),
+                        NavItem::new("Theme"),
+                        NavItem::new("Size"),
+                        NavItem::new("Density").nested(),
+                        NavItem::new("Zoom").nested(),
+                        NavItem::new("Fonts"),
                     ],
                 )
-                .selected(Some(0)),
+                .selected(Some(3)),
             )
+            .into_any_element()
+    }
+    fn results() -> AnyElement {
+        let hit = |label: &str, matched: Range<usize>| NavItem {
+            label: label.to_string().into(),
+            matches: vec![matched],
+            nested: true,
+        };
+        div()
+            .w(dp(228.))
+            .child(NavList::new(
+                "results",
+                vec![
+                    NavItem::new("Command palette › Tabs"),
+                    hit("Show tabs", 0..4),
+                    NavItem::new("Notices › Toasts"),
+                    hit("Toast duration", 0..5),
+                ],
+            ))
             .into_any_element()
     }
 
@@ -226,11 +249,12 @@ pub(crate) fn mocks() -> Vec<mock::Mock> {
                     [
                         ("Size selected", list(Some(1), None)),
                         ("Hovering Fonts", list(Some(0), Some(2))),
+                        ("A nested row selected", nested()),
                         ("Search results", results()),
                     ],
                 )
                 .into_any_element()
         })
-        .size(800., 240.),
+        .size(1040., 300.),
     ]
 }
