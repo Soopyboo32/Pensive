@@ -14,8 +14,8 @@ use settings::Settings;
 use theme::{ActiveTheme, Density, IconSize, Theme, Typeset, dp};
 
 use crate::{
-    key_binding, text_editing, text_input::TextInput, view_callback_with,
-    window_frame::draws_window_controls,
+    key_binding, smooth_scroll::SmoothScroll, text_editing, text_input::TextInput,
+    view_callback_with, window_frame::draws_window_controls,
 };
 
 actions!(
@@ -72,6 +72,8 @@ pub struct MockBrowser {
     selected: usize,
     /// Index into the selected subject's mocks that match the filter.
     focused: usize,
+    subjects_scroll: SmoothScroll,
+    mocks_scroll: SmoothScroll,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -117,6 +119,8 @@ impl MockBrowser {
             input,
             selected: 0,
             focused: 0,
+            subjects_scroll: SmoothScroll::new(),
+            mocks_scroll: SmoothScroll::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -245,14 +249,13 @@ impl MockBrowser {
                     .into_any_element(),
             );
         }
-        div()
-            .id("subjects")
+        self.subjects_scroll
+            .scrolls(div().id("subjects"), cx)
             .flex()
             .flex_col()
             .flex_none()
             .w(dp(220.))
             .pb_2()
-            .overflow_y_scroll()
             .border_r_1()
             .border_color(colors.border_subtle)
             .bg(colors.surface_panel)
@@ -350,14 +353,13 @@ impl MockBrowser {
                         }),
                 )
         });
-        div()
-            .id("mocks")
+        self.mocks_scroll
+            .scrolls(div().id("mocks"), cx)
             .flex_1()
             .min_w_0()
             .pt_5()
             .px_6()
             .pb_6()
-            .overflow_y_scroll()
             .child(
                 div()
                     .typeset(density.heading)

@@ -27,6 +27,7 @@ pub(crate) use saving::{CATEGORY, SAVE, SaveMode, declare_settings};
 
 use crate::{
     list_splice::splice_changed,
+    smooth_scroll::SmoothScroll,
     text_editing::{Selection, TextEditing, movement},
 };
 
@@ -47,6 +48,8 @@ pub struct Editor {
     revealed: Vec<Range<usize>>,
     rows: Vec<Row>,
     list: ListState,
+    /// Glides `list` for the wheel.
+    scroll: SmoothScroll<ListState>,
     selection: Selection,
     /// The column Up and Down aim for, kept across short lines.
     goal_column: Option<usize>,
@@ -70,12 +73,14 @@ impl Editor {
                 this.auto_save_now(cx);
             }
         });
+        let list = ListState::new(0, ListAlignment::Top, OVERDRAW);
         Self {
             document: None,
             mode: Mode::default(),
             revealed: Vec::new(),
             rows: Vec::new(),
-            list: ListState::new(0, ListAlignment::Top, OVERDRAW),
+            scroll: SmoothScroll::of(list.clone()),
+            list,
             selection: Selection::default(),
             goal_column: None,
             selecting: false,
@@ -121,6 +126,7 @@ impl Editor {
         self.revealed.clear();
         self.scroll_x = Pixels::ZERO;
         self.rows.clear();
+        self.scroll.stop();
         self.list.reset(0);
         self.reveal_cursor(cx);
     }
@@ -215,6 +221,7 @@ impl Editor {
         };
         self.update_rows(cx);
         if let Some(row) = self.row_of(line) {
+            self.scroll.stop();
             self.list.scroll_to_reveal_item(row);
         }
         self.autoscroll = true;
@@ -466,7 +473,7 @@ impl Editor {
         self.selecting = false;
     }
 
-    /// Scrolls the text sideways. The list scrolls it up and down.
+    /// Scrolls the text sideways. The wheel layer glides it up and down.
     fn on_scroll(&mut self, event: &ScrollEvent, window: &mut Window, cx: &mut Context<Self>) {
         let line_height = cx.density().code.line_height.to_pixels(window.rem_size());
         let delta = event.delta.pixel_delta(line_height);

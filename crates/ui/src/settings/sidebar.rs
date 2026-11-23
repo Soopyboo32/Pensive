@@ -121,9 +121,10 @@ impl SettingsView {
                     cx,
                 ),
             ])
-            .on_select(view_callback_with(cx, |view: &mut Self, index, _, cx| {
-                view.show_category(index, cx)
-            }))
+            .on_select(view_callback_with(
+                cx,
+                |view: &mut Self, index, window, cx| view.show_category(index, window, cx),
+            ))
             .on_hover(view_callback_with(cx, |view: &mut Self, index, _, cx| {
                 view.hovered = index;
                 cx.notify();
@@ -200,7 +201,7 @@ impl SettingsView {
                 .on_select(view_callback_with(
                     cx,
                     move |view: &mut Self, index: usize, window, cx| match rows[index] {
-                        ListRow::Page(page) => view.show_page(Spot { category, page }, cx),
+                        ListRow::Page(page) => view.show_page(Spot { category, page }, window, cx),
                         ListRow::Setting { page, setting } => {
                             view.show_setting(Spot { category, page }, setting, window, cx)
                         }

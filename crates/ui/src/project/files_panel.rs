@@ -25,13 +25,14 @@ use super::{
     },
     tree::{Row, RowKind},
 };
-use crate::{PANEL, view_callback, view_callback_with};
+use crate::{PANEL, smooth_scroll::SmoothScroll, view_callback, view_callback_with};
 
 /// The Files panel's rows, laid out again only when what they show changes, and drawn only
 /// while they're on screen, so a worktree with tens of thousands of files stays quick.
-#[derive(Default)]
 pub(super) struct FileTree {
     scroll: UniformListScrollHandle,
+    /// Glides `scroll` for the wheel.
+    glide: SmoothScroll,
     rows: Vec<Row>,
     /// What `rows` came from.
     inputs: Option<TreeInputs>,
@@ -39,6 +40,20 @@ pub(super) struct FileTree {
     statuses: HashMap<PathBuf, FileStatus>,
     /// The changes `statuses` came from.
     statuses_of: Option<Arc<Changes>>,
+}
+
+impl Default for FileTree {
+    fn default() -> Self {
+        let scroll = UniformListScrollHandle::new();
+        Self {
+            glide: SmoothScroll::uniform_list(&scroll),
+            scroll,
+            rows: Vec::new(),
+            inputs: None,
+            statuses: HashMap::new(),
+            statuses_of: None,
+        }
+    }
 }
 
 struct TreeInputs {
@@ -82,16 +97,22 @@ impl ProjectView {
             .child(self.files_header(cx))
             .child(self.file_filter(window, cx))
             .child(
-                uniform_list(
-                    "file-tree",
-                    self.tree.rows.len(),
-                    cx.processor(|this, range, _, cx| this.tree_rows(range, cx)),
-                )
-                .flex_1()
-                .min_h_0()
-                .px_2()
-                .pt_1()
-                .track_scroll(&self.tree.scroll),
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        uniform_list(
+                            "file-tree",
+                            self.tree.rows.len(),
+                            cx.processor(|this, range, _, cx| this.tree_rows(range, cx)),
+                        )
+                        .size_full()
+                        .px_2()
+                        .pt_1()
+                        .track_scroll(&self.tree.scroll),
+                    )
+                    .child(self.tree.glide.wheel_layer(cx)),
             )
     }
 
@@ -321,6 +342,7 @@ impl ProjectView {
             .iter()
             .position(|row| row.path == path);
         if let Some(index) = index {
+            self.tree.glide.stop();
             self.tree
                 .scroll
                 .scroll_to_item(index, ScrollStrategy::Nearest);

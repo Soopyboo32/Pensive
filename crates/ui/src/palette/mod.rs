@@ -7,7 +7,7 @@ mod results;
 
 use components::{CommandPalette, PaletteChip, PaletteSection};
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle, Subscription, Window,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, Subscription, Window,
     actions, div, prelude::*,
 };
 use model::{Notice, Notices, ProjectId, Projects};
@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use settings::{AnySetting, ControlState, Settings};
 
 use crate::{
-    key_binding, text_editing,
+    key_binding,
+    smooth_scroll::SmoothScroll,
+    text_editing,
     text_input::{Changed, TextInput},
     view_callback, view_callback_with,
 };
@@ -148,7 +150,7 @@ pub struct PaletteView {
     tab: Tab,
     keyword: Option<Keyword>,
     selected: usize,
-    scroll: ScrollHandle,
+    scroll: SmoothScroll,
     overlay: bool,
     _subscription: Subscription,
 }
@@ -168,7 +170,7 @@ impl PaletteView {
             tab: Tab::All,
             keyword: None,
             selected: 0,
-            scroll: ScrollHandle::new(),
+            scroll: SmoothScroll::new(),
             overlay: false,
             _subscription: subscription,
         };
@@ -230,7 +232,7 @@ impl PaletteView {
             self.set_query(rest, cx);
         }
         self.selected = 0;
-        self.scroll.scroll_to_item(0);
+        self.scroll.jump_to(Pixels::ZERO);
         cx.notify();
     }
 
@@ -286,7 +288,15 @@ impl PaletteView {
             return;
         }
         self.selected = (self.selected as isize + step).rem_euclid(count) as usize;
-        CommandPalette::reveal(&self.scroll, results.empty.is_some(), sizes, self.selected);
+        let shown = CommandPalette::reveal(
+            self.scroll.handle(),
+            results.empty.is_some(),
+            sizes,
+            self.selected,
+        );
+        if let Some(to) = shown {
+            self.scroll.jump_to(to);
+        }
         cx.notify();
     }
 
@@ -475,7 +485,8 @@ impl Render for PaletteView {
         let mut palette = CommandPalette::new()
             .fill()
             .input(self.input.clone())
-            .scroll(self.scroll.clone())
+            .scroll(self.scroll.handle().clone())
+            .on_wheel(self.scroll.wheel_listener(cx))
             .tabs(tabs.iter().copied(), tab)
             .on_tab(on_tab)
             .on_activate(on_activate)
@@ -530,8 +541,9 @@ impl Render for PaletteView {
 }
 
 #[cfg(test)]
+#[expect(clippy::disallowed_methods, reason = "tests size the window in pixels")]
 mod tests {
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{TestAppContext, VisualTestContext, px, size};
     use model::fixtures;
 
     use super::*;
@@ -558,6 +570,31 @@ mod tests {
         cx.simulate_keystrokes("up up");
         let count = view.update(cx, |view, cx| view.results(cx).into_items().count());
         assert_eq!(selected(cx), count - 1);
+    }
+
+    #[gpui::test]
+    fn arrow_keys_scroll_the_selection_into_view(cx: &mut TestAppContext) {
+        let (view, cx) = palette_window(cx);
+        // Short enough that the results overflow.
+        cx.simulate_resize(size(px(800.), px(300.)));
+        cx.run_until_parked();
+        let scroll = view.read_with(cx, |view, _| view.scroll.handle().clone());
+        assert!(scroll.max_offset().y > Pixels::ZERO, "the results overflow");
+        cx.simulate_keystrokes("up");
+        // Rows keep their unscrolled bounds, so add the offset to see where one shows.
+        let last = scroll.bounds_for_item(scroll.children_count() - 1).unwrap();
+        assert!(scroll.offset().y < Pixels::ZERO);
+        assert!(
+            last.bottom() + scroll.offset().y <= scroll.bounds().bottom(),
+            "the last row shows"
+        );
+        cx.simulate_keystrokes("down");
+        // The first section's heading comes before its first row.
+        let first = scroll.bounds_for_item(1).unwrap();
+        assert!(
+            first.top() + scroll.offset().y >= scroll.bounds().top(),
+            "the first row shows"
+        );
     }
 
     #[gpui::test]

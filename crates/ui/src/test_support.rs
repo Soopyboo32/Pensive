@@ -1,5 +1,7 @@
 //! The set-up, windows and input that ui's tests share.
 
+use std::time::Duration;
+
 use gpui::{AppContext, Entity, Modifiers, Pixels, Point, TestAppContext, VisualTestContext};
 use model::fixtures;
 
@@ -21,6 +23,22 @@ pub(crate) fn pensive_window(cx: &mut TestAppContext) -> (Entity<Pensive>, &mut 
         .add_window_view(|window, cx| Pensive::new(projects, Some(fixtures::PENSIVE), window, cx));
     cx.run_until_parked();
     (view, cx)
+}
+
+/// Lets `duration` pass a frame at a time, as a 120 Hz display would draw it. Tests have no
+/// display, so nothing waiting for the next frame runs without this.
+pub(crate) fn run_frames(cx: &mut VisualTestContext, duration: Duration) {
+    const FRAME: Duration = Duration::from_micros(8_333);
+    let mut passed = Duration::ZERO;
+    while passed < duration {
+        let frame = FRAME.min(duration - passed);
+        cx.executor().advance_clock(frame);
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+        passed += frame;
+    }
 }
 
 /// Moves the pointer to `position` and clicks there.

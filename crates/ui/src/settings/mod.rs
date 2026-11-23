@@ -46,8 +46,6 @@ const TRACKING_LINE: Dp = dp(60.);
 const READING_WIDTH: Dp = dp(680.);
 /// How long a click takes to glide to its heading.
 const CLICK_GLIDE: Duration = Duration::from_millis(200);
-/// How long a wheel notch takes to glide. A trackpad moves the page as it reports.
-const WHEEL_GLIDE: Duration = Duration::from_millis(150);
 /// How long the list's highlight, the rail's fill and the rail's width take to slide, with a
 /// frame to spare.
 const SLIDE: Duration = Duration::from_millis(170);
@@ -122,6 +120,8 @@ pub(crate) struct SettingsView {
     focus_handle: FocusHandle,
     search: Entity<TextInput>,
     scroll: SmoothScroll,
+    /// The list of pages or search results beside the page.
+    list_scroll: SmoothScroll,
     /// The scroll's children as of the last render, which the scroll's bounds describe.
     anchors: Vec<Anchor>,
     current: Spot,
@@ -196,6 +196,7 @@ impl SettingsView {
             focus_handle: cx.focus_handle(),
             search,
             scroll: SmoothScroll::new(),
+            list_scroll: SmoothScroll::new(),
             anchors: Vec::new(),
             current: Spot::START,
             reading: 0,
@@ -338,12 +339,13 @@ impl SettingsView {
         (spot, reading): (Spot, usize),
         pin: Pin,
         smooth: bool,
+        window: &Window,
         cx: &mut Context<Self>,
     ) {
         self.set_current(spot, reading, smooth, cx);
         self.pinned = Some(pin);
         if smooth {
-            self.scroll.glide_to(to, CLICK_GLIDE, cx);
+            self.scroll.glide_to(to, CLICK_GLIDE, window, cx);
         } else {
             self.scroll.jump_to(to);
         }
@@ -351,7 +353,13 @@ impl SettingsView {
     }
 
     /// Scrolls so `spot`'s page is at the top.
-    fn scroll_to_page(&mut self, spot: Spot, smooth: bool, cx: &mut Context<Self>) {
+    fn scroll_to_page(
+        &mut self,
+        spot: Spot,
+        smooth: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
         let scroll = self.scroll.handle();
         let anchor = Anchor::Page(spot);
         let index = self.anchors.iter().position(|known| *known == anchor);
@@ -359,7 +367,7 @@ impl SettingsView {
             return;
         };
         let to = scroll.bounds().top() - item.top();
-        self.scroll_to(to, (spot, 0), Pin::Page, smooth, cx);
+        self.scroll_to(to, (spot, 0), Pin::Page, smooth, window, cx);
     }
 
     /// Scrolls `setting` of `spot` to the tracking line, leaving its page's heading in view.
@@ -376,7 +384,14 @@ impl SettingsView {
             return false;
         };
         let line = self.scroll.handle().bounds().top() + TRACKING_LINE.to_pixels(window.rem_size());
-        self.scroll_to(line - top, (spot, setting), Pin::Setting, smooth, cx);
+        self.scroll_to(
+            line - top,
+            (spot, setting),
+            Pin::Setting,
+            smooth,
+            window,
+            cx,
+        );
         true
     }
 
@@ -384,24 +399,18 @@ impl SettingsView {
     /// is back to following the scroll.
     fn wheel(&mut self, event: &ScrollEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.pinned = None;
-        let delta = event.delta.pixel_delta(window.line_height()).y;
-        if event.delta.precise() {
-            let offset = self.scroll.handle().offset().y;
-            self.scroll.jump_to(offset + delta);
-        } else {
-            self.scroll.glide_by(delta, WHEEL_GLIDE, cx);
-        }
-        cx.notify();
+        let view = cx.entity_id();
+        self.scroll.wheel(event, view, window, cx);
     }
 
     /// Fades the page over to `category`, from its top. The current category scrolls to its top.
-    fn show_category(&mut self, category: usize, cx: &mut Context<Self>) {
+    fn show_category(&mut self, category: usize, window: &Window, cx: &mut Context<Self>) {
         let spot = Spot { category, page: 0 };
         if self.search_from.is_some() {
             return self.show_after_search(spot, None, cx);
         }
         if category == self.current.category {
-            return self.scroll_to_page(spot, true, cx);
+            return self.scroll_to_page(spot, true, window, cx);
         }
         self.pinned = None;
         self.set_current(spot, 0, true, cx);
@@ -430,8 +439,8 @@ impl SettingsView {
         }
     }
 
-    fn show_page(&mut self, spot: Spot, cx: &mut Context<Self>) {
-        self.scroll_to_page(spot, true, cx);
+    fn show_page(&mut self, spot: Spot, window: &Window, cx: &mut Context<Self>) {
+        self.scroll_to_page(spot, true, window, cx);
     }
 
     fn show_setting(
@@ -499,7 +508,7 @@ impl SettingsView {
         }
         self.pending = None;
         match pending {
-            Pending::Spot(spot, None) => self.scroll_to_page(spot, false, cx),
+            Pending::Spot(spot, None) => self.scroll_to_page(spot, false, window, cx),
             Pending::Spot(spot, Some(setting)) => {
                 if !self.scroll_to_setting(spot, setting, false, window, cx) {
                     self.pending = Some(pending);
@@ -580,7 +589,8 @@ impl SettingsView {
             .size_full()
             .debug_selector(|| "settings-page".into())
             // Hidden, so the wheel is ours to glide. The tracked handle still offsets the
-            // children and keeps them clipped.
+            // children and keeps them clipped. This listens through the view rather than
+            // `SmoothScroll::scrolls`, since a wheel also unpins the page.
             .overflow_hidden()
             .track_scroll(self.scroll.handle())
             .on_scroll(cx.listener(Self::wheel))
@@ -702,8 +712,8 @@ impl SettingsView {
     ) -> gpui::Div {
         let surface = cx.theme().colors.surface_app;
         let card = NextCard::new(("next", index), next.icon, next.name, next.description).on_click(
-            view_callback(cx, move |view: &mut Self, _, cx| {
-                view.show_category(index, cx)
+            view_callback(cx, move |view: &mut Self, window, cx| {
+                view.show_category(index, window, cx)
             }),
         );
         div()
@@ -811,11 +821,10 @@ impl Render for SettingsView {
                             .pt_2p5()
                             .child(search_field)
                             .child(
-                                div()
-                                    .id("settings-list")
+                                self.list_scroll
+                                    .scrolls(div().id("settings-list"), cx)
                                     .flex_1()
                                     .min_h_0()
-                                    .overflow_y_scroll()
                                     .child(list),
                             ),
                     ),
@@ -833,7 +842,10 @@ mod tests {
     use gpui::{Modifiers, ScrollDelta, TestAppContext, VisualTestContext, point, px};
 
     use super::*;
-    use crate::test_support::pensive_window;
+    use crate::{
+        smooth_scroll::WHEEL_GLIDE,
+        test_support::{pensive_window, run_frames},
+    };
 
     fn settings_window(cx: &mut TestAppContext) -> (Entity<SettingsView>, &mut VisualTestContext) {
         let (root, cx) = pensive_window(cx);
@@ -859,10 +871,7 @@ mod tests {
 
     /// Lets every glide and fade finish a frame at a time, and draws the frames that follow.
     fn settle(cx: &mut VisualTestContext) {
-        for _ in 0..30 {
-            cx.executor().advance_clock(Duration::from_millis(16));
-            cx.run_until_parked();
-        }
+        run_frames(cx, Duration::from_millis(480));
         for _ in 0..3 {
             cx.update(|window, _| window.refresh());
             cx.run_until_parked();
@@ -907,11 +916,13 @@ mod tests {
                 .collect()
         });
         for (category, count) in pages.into_iter().enumerate() {
-            view.update(cx, |view, cx| view.show_category(category, cx));
+            view.update_in(cx, |view, window, cx| {
+                view.show_category(category, window, cx)
+            });
             settle(cx);
             for page in 0..count {
                 let spot = Spot { category, page };
-                view.update(cx, |view, cx| view.show_page(spot, cx));
+                view.update_in(cx, |view, window, cx| view.show_page(spot, window, cx));
                 settle(cx);
                 // Items keep their unscrolled bounds, so add the offset to see where one shows.
                 let (top, shown) = view.read_with(cx, |view, _| {
@@ -979,7 +990,7 @@ mod tests {
     #[gpui::test]
     fn a_category_heading_is_part_of_its_first_page(cx: &mut TestAppContext) {
         let (view, cx) = settings_window(cx);
-        view.update(cx, |view, cx| view.show_category(1, cx));
+        view.update_in(cx, |view, window, cx| view.show_category(1, window, cx));
         settle(cx);
         scroll(ScrollDelta::Pixels(point(px(0.), px(-1.))), cx);
         settle(cx);
@@ -1011,9 +1022,9 @@ mod tests {
     fn a_wheel_notch_glides_and_a_trackpad_moves_at_once(cx: &mut TestAppContext) {
         let (view, cx) = settings_window(cx);
         scroll(ScrollDelta::Lines(point(0., -2.)), cx);
-        cx.executor().advance_clock(WHEEL_GLIDE / 3);
+        run_frames(cx, WHEEL_GLIDE / 3);
         let partway = offset(&view, cx);
-        cx.executor().advance_clock(WHEEL_GLIDE);
+        run_frames(cx, WHEEL_GLIDE);
         let done = offset(&view, cx);
         assert!(
             done < partway && partway < px(0.),

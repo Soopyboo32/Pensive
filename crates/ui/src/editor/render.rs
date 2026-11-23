@@ -201,7 +201,6 @@ impl Render for Editor {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .on_scroll(cx.listener(Self::on_scroll))
             .relative()
             .size_full()
             .py_1()
@@ -218,6 +217,10 @@ impl Render for Editor {
                     editor.read(cx).render_row(index, &rows, window, cx)
                 })
                 .size_full(),
+            )
+            .child(
+                self.scroll
+                    .wheel_layer_then(cx, cx.listener(Self::on_scroll)),
             )
             .child(
                 canvas(

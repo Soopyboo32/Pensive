@@ -5445,6 +5445,7 @@ dependencies = [
  "strum",
  "theme",
  "unicode-segmentation",
+ "web-time",
 ]
 
 [[package]]

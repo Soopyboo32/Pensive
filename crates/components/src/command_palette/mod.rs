@@ -12,7 +12,9 @@ pub(crate) use mocks::mocks;
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, ScrollHandle, SharedString, Window, div, prelude::*};
+use gpui::{
+    AnyElement, App, Pixels, ScrollEvent, ScrollHandle, SharedString, Window, div, prelude::*,
+};
 use theme::{ActiveTheme, Shadow, Typeset, dp};
 
 use crate::{Callback, Icon, IconButton, IconName, Kbd, TabStrip, callback};
@@ -60,6 +62,9 @@ impl PaletteSection {
     }
 }
 
+/// Moves the results for a wheel event over them.
+type WheelHandler = Box<dyn Fn(&ScrollEvent, &mut Window, &mut App)>;
+
 #[derive(IntoElement)]
 pub struct CommandPalette {
     chips: Vec<PaletteChip>,
@@ -78,6 +83,7 @@ pub struct CommandPalette {
     on_tab: Option<Callback<usize>>,
     on_activate: Option<Callback<usize>>,
     on_settings: Option<Callback<()>>,
+    on_wheel: Option<WheelHandler>,
 }
 
 impl Default for CommandPalette {
@@ -98,6 +104,7 @@ impl CommandPalette {
             empty: None,
             sections: Vec::new(),
             selected: None,
+            on_wheel: None,
             scroll: None,
             overlay: false,
             fill: false,
@@ -167,25 +174,45 @@ impl CommandPalette {
         self
     }
 
-    /// Scrolls the results tracked by `handle` just enough to show the entry at `selected`.
-    /// `section_sizes` are the entry counts of the sections, in order.
+    /// Hands the wheel over the results to `handler`, which moves them through the handle given
+    /// to [`CommandPalette::scroll`], instead of the results scrolling themselves.
+    pub fn on_wheel(
+        mut self,
+        handler: impl Fn(&ScrollEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_wheel = Some(Box::new(handler));
+        self
+    }
+
+    /// Where the results tracked by `handle` must scroll to show all of the entry at `selected`,
+    /// or `None` if it shows already. `section_sizes` are the entry counts of the sections, in
+    /// order. The results scroll through their owner, since they don't scroll themselves.
     pub fn reveal(
         handle: &ScrollHandle,
         has_empty: bool,
         section_sizes: impl IntoIterator<Item = usize>,
         selected: usize,
-    ) {
+    ) -> Option<Pixels> {
         let mut child = usize::from(has_empty);
         let mut first = 0;
         for size in section_sizes {
             child += 1;
             if selected < first + size {
-                handle.scroll_to_item(child + selected - first);
-                return;
+                // Entries keep their unscrolled bounds, so add the offset to see where one shows.
+                let entry = handle.bounds_for_item(child + selected - first)?;
+                let (shown, scrolled) = (handle.bounds(), handle.offset().y);
+                return if entry.top() + scrolled < shown.top() {
+                    Some(shown.top() - entry.top())
+                } else if entry.bottom() + scrolled > shown.bottom() {
+                    Some(shown.bottom() - entry.bottom())
+                } else {
+                    None
+                };
             }
             child += size;
             first += size;
         }
+        None
     }
 
     /// Adds the shadow the palette casts over a window.
@@ -357,7 +384,10 @@ impl RenderOnce for CommandPalette {
                     .flex_grow_1()
                     .min_h_0()
                     .p_1()
-                    .overflow_y_scroll()
+                    .map(|list| match self.on_wheel {
+                        Some(on_wheel) => list.overflow_hidden().on_scroll(on_wheel),
+                        None => list.overflow_y_scroll(),
+                    })
                     .when_some(self.scroll, |list, handle| list.track_scroll(&handle))
                     .children(results),
             )

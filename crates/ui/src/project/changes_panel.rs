@@ -16,7 +16,10 @@ use strum::VariantArray;
 use theme::{ActiveTheme, Dp, IconSize, Typeset, dp};
 
 use super::{Control, EARLIER_FOLDED, FileLayout, ProjectView, Source, files::FileRow};
-use crate::{PANEL, list_splice::splice_changed, notices, view_callback, view_callback_with};
+use crate::{
+    PANEL, list_splice::splice_changed, notices, smooth_scroll::SmoothScroll, view_callback,
+    view_callback_with,
+};
 
 /// How far past the panel the timeline lays out rows, so scrolling doesn't show gaps.
 #[expect(
@@ -61,6 +64,8 @@ enum Item {
 /// The timeline's rows, and what they were laid out from.
 pub(super) struct Timeline {
     list: ListState,
+    /// Glides `list` for the wheel.
+    scroll: SmoothScroll<ListState>,
     items: Vec<Item>,
     /// What `items` came from, to lay them out again only when it changes.
     inputs: Option<TimelineInputs>,
@@ -70,8 +75,10 @@ pub(super) struct Timeline {
 
 impl Timeline {
     pub(super) fn new() -> Self {
+        let list = ListState::new(0, ListAlignment::Top, OVERDRAW);
         Self {
-            list: ListState::new(0, ListAlignment::Top, OVERDRAW),
+            scroll: SmoothScroll::of(list.clone()),
+            list,
             items: Vec::new(),
             inputs: None,
             metrics: None,
@@ -121,21 +128,29 @@ impl ProjectView {
             .bg(colors.surface_panel)
             .child(self.header(changes, cx))
             .child(
-                div().flex_1().min_h_0().pl_1().pr_2().child(
-                    list(
-                        self.timeline.list.clone(),
-                        cx.processor(|this, index, _, cx| {
-                            // The list lays each row out on its own, so it must ask for the width.
-                            div()
-                                .flex()
-                                .flex_col()
-                                .w_full()
-                                .child(this.render_item(index, cx))
-                                .into_any_element()
-                        }),
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .pl_1()
+                    .pr_2()
+                    .child(
+                        list(
+                            self.timeline.list.clone(),
+                            cx.processor(|this, index, _, cx| {
+                                // The list lays each row out on its own, so it must ask for the
+                                // width.
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .w_full()
+                                    .child(this.render_item(index, cx))
+                                    .into_any_element()
+                            }),
+                        )
+                        .size_full(),
                     )
-                    .size_full(),
-                ),
+                    .child(self.timeline.scroll.wheel_layer(cx)),
             )
             .child(self.commit_box(changes, cx))
     }
