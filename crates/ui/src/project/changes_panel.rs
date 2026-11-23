@@ -16,7 +16,7 @@ use strum::VariantArray;
 use theme::{ActiveTheme, Dp, IconSize, Typeset, dp};
 
 use super::{Control, EARLIER_FOLDED, FileLayout, ProjectView, Source, files::FileRow};
-use crate::{PANEL, list_splice::splice_changed, notices, view_callback, view_callback_with};
+use crate::{PANEL, list_splice::splice_keyed, notices, view_callback, view_callback_with};
 
 /// How far past the panel the timeline lays out rows, so scrolling doesn't show gaps.
 #[expect(
@@ -28,7 +28,7 @@ const OVERDRAW: Pixels = px(200.);
 /// One row of the timeline. The list draws only the rows on screen, so thousands of files cost
 /// no more than a screenful. Rows that compare equal keep their height, so a change measures
 /// only the rows that differ.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Item {
     /// The node that stages everything, the label that folds the files, and the layout switcher.
     Uncommitted,
@@ -169,12 +169,7 @@ impl ProjectView {
             return;
         }
         let items = self.timeline_items(changes);
-        splice_changed(
-            &self.timeline.list,
-            &self.timeline.items,
-            &items,
-            |old, new| old == new,
-        );
+        splice_keyed(&self.timeline.list, &self.timeline.items, &items);
         self.timeline.items = items;
         self.timeline.inputs = Some(inputs);
     }
@@ -274,9 +269,7 @@ impl ProjectView {
                 None => div().into_any_element(),
             },
             Item::CommitFile { sha, era, row } => {
-                let files = changes
-                    .commit(&sha)
-                    .map_or(&[][..], |commit| commit.files.as_slice());
+                let files = changes.commit(&sha).map_or(&[][..], |commit| &commit.files);
                 let source = Source::Commit(sha);
                 file_line(
                     TimelineLine::Solid,
@@ -679,7 +672,7 @@ fn file_line(line: TimelineLine, row: AnyElement) -> TimelineRow {
 }
 
 /// Where a commit sits on the timeline, which sets how it's drawn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Era {
     /// The branch's own.
     Branch,

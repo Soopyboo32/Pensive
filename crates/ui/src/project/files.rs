@@ -14,7 +14,7 @@ use super::{
 
 /// One row of a list of changed files in the current layout. Rows are laid out once and drawn
 /// only while they're on screen, so a commit with thousands of files stays quick.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum FileRow {
     /// The file at this index of the list, `depth` folders in.
     File { index: usize, depth: usize },

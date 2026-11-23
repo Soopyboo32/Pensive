@@ -37,7 +37,9 @@ pub(super) struct FileTree {
     inputs: Option<TreeInputs>,
     /// Each uncommitted file's status, by its path.
     statuses: HashMap<PathBuf, FileStatus>,
-    /// The changes `statuses` came from.
+    /// Each folder's status, from the files inside it, by its path.
+    folder_statuses: HashMap<PathBuf, FileStatus>,
+    /// The changes the statuses came from.
     statuses_of: Option<Arc<Changes>>,
 }
 
@@ -121,6 +123,7 @@ impl ProjectView {
             .is_some_and(|of| Arc::ptr_eq(of, &changes))
         {
             self.tree.statuses = file_statuses(&changes);
+            self.tree.folder_statuses = folder_statuses(&self.tree.statuses);
             self.tree.statuses_of = Some(changes);
         }
     }
@@ -213,7 +216,7 @@ impl ProjectView {
 
     /// Draws the tree's rows in `range`, which the list asks for only while they're on screen.
     fn tree_rows(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let statuses = &self.tree.statuses;
+        let (statuses, folder_statuses) = (&self.tree.statuses, &self.tree.folder_statuses);
         let style = GIT_STATUS.get(cx);
         let guides = match GUIDES.get(cx) {
             Guides::Always => true,
@@ -233,7 +236,7 @@ impl ProjectView {
                 let index = start + offset;
                 let folder = matches!(row.kind, RowKind::Folder { .. });
                 let status = if folder {
-                    folder_status(statuses, &row.path)
+                    folder_statuses.get(&row.path).copied()
                 } else {
                     statuses.get(&row.path).copied()
                 };
@@ -361,24 +364,33 @@ fn tree_options(cx: &App) -> TreeOptions {
     }
 }
 
-/// The status a folder shows for the changes inside it: modified when any file changed, or added
-/// when every change is new.
-fn folder_status(statuses: &HashMap<PathBuf, FileStatus>, folder: &Path) -> Option<FileStatus> {
-    let inside: Vec<FileStatus> = statuses
-        .iter()
-        .filter(|(path, _)| path.starts_with(folder))
-        .map(|(_, status)| *status)
-        .collect();
-    if inside.is_empty() {
-        None
-    } else if inside
-        .iter()
-        .all(|status| matches!(status, FileStatus::Added | FileStatus::Untracked))
-    {
-        Some(FileStatus::Added)
-    } else {
-        Some(FileStatus::Modified)
+/// The status each folder with changes inside it shows: modified when any file changed, or
+/// added when every change is new. Worked out once per changes, since walking every change for
+/// each folder on screen took most of a frame with thousands of them.
+fn folder_statuses(statuses: &HashMap<PathBuf, FileStatus>) -> HashMap<PathBuf, FileStatus> {
+    let mut folders: HashMap<PathBuf, FileStatus> = HashMap::new();
+    for (path, status) in statuses {
+        let added = matches!(status, FileStatus::Added | FileStatus::Untracked);
+        let status = if added {
+            FileStatus::Added
+        } else {
+            FileStatus::Modified
+        };
+        for folder in path.ancestors().skip(1) {
+            if folder.as_os_str().is_empty() {
+                break;
+            }
+            match folders.get(folder) {
+                // Every folder above already shows at least as much.
+                Some(FileStatus::Modified) => break,
+                Some(_) if added => break,
+                _ => {
+                    folders.insert(folder.to_path_buf(), status);
+                }
+            }
+        }
     }
+    folders
 }
 
 /// How a status shows in the tree.
@@ -403,5 +415,27 @@ fn status_color(status: FileStatus, style: GitStatus) -> Option<TreeColor> {
         GitStatus::Color => Some(TreeColor::Name(color)),
         GitStatus::Letter => Some(TreeColor::Letter(letter, color)),
         GitStatus::Off => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_folder_is_added_only_when_every_change_inside_is_new() {
+        let statuses = HashMap::from([
+            (PathBuf::from("src/new/a.rs"), FileStatus::Untracked),
+            (PathBuf::from("src/new/b.rs"), FileStatus::Added),
+            (PathBuf::from("src/lib.rs"), FileStatus::Modified),
+            (PathBuf::from("docs/gone.md"), FileStatus::Deleted),
+            (PathBuf::from("README.md"), FileStatus::Modified),
+        ]);
+        let folders = folder_statuses(&statuses);
+        let status = |folder: &str| folders.get(Path::new(folder)).copied();
+        assert_eq!(status("src/new"), Some(FileStatus::Added));
+        assert_eq!(status("src"), Some(FileStatus::Modified));
+        assert_eq!(status("docs"), Some(FileStatus::Modified));
+        assert_eq!(folders.len(), 3, "only folders with changes inside");
     }
 }

@@ -3,6 +3,7 @@
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use gpui::SharedString;
@@ -136,8 +137,10 @@ pub struct Commit {
     pub description: Option<SharedString>,
     /// Whether the upstream has it.
     pub pushed: bool,
-    /// Each file's change sits on its `index` side, so it shows as staged: all of it is in.
-    pub files: Vec<FileChange>,
+    /// Each file's change sits on its `index` side, so it shows as staged: all of it is in. A
+    /// commit never changes, so its files are shared: copying the changes to stage a file
+    /// doesn't copy every commit's files too.
+    pub files: Arc<[FileChange]>,
 }
 
 /// How a commit's `sha` shows.
@@ -239,7 +242,7 @@ impl Changes {
 
     /// The file `key` names, in the uncommitted list or its commit.
     pub fn find(&self, key: &FileKey) -> Option<&FileChange> {
-        let files = match &key.source {
+        let files: &[FileChange] = match &key.source {
             Source::Uncommitted => &self.uncommitted,
             Source::Commit(sha) => &self.commit(sha)?.files,
         };
