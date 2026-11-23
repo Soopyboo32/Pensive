@@ -1,6 +1,9 @@
 //! A worktree's uncommitted files and its branch's commits, with how far it is from its upstream.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use gpui::SharedString;
 
@@ -208,6 +211,16 @@ impl Changes {
     pub fn set_staged(&mut self, path: &Path, staged: bool) {
         if let Some(file) = self.uncommitted.iter_mut().find(|file| file.path == path) {
             file.set_staged(staged);
+        }
+    }
+
+    /// Stages or unstages all of each uncommitted file at `paths`, in one pass over the files.
+    pub fn set_staged_paths(&mut self, paths: &[PathBuf], staged: bool) {
+        let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        for file in &mut self.uncommitted {
+            if paths.contains(file.path.as_path()) {
+                file.set_staged(staged);
+            }
         }
     }
 

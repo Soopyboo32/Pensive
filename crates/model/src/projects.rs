@@ -83,7 +83,7 @@ pub struct Projects {
     /// otherwise.
     pub as_of: Option<SystemTime>,
     /// Each worktree's changes, by its path, once they've been read.
-    changes: HashMap<PathBuf, Changes>,
+    changes: HashMap<PathBuf, Arc<Changes>>,
     /// Files that have been shown, by worktree and file. They stay open, so edits that aren't
     /// saved survive switching files.
     documents: HashMap<(PathBuf, FileKey), Entity<Document>>,
@@ -100,7 +100,7 @@ pub struct Projects {
     /// How many of the base's commits each worktree's changes are read with. None until asked.
     earlier: HashMap<PathBuf, usize>,
     /// Each worktree's files, by its path, once read.
-    files: HashMap<PathBuf, WorktreeFiles>,
+    files: HashMap<PathBuf, Arc<WorktreeFiles>>,
     /// Each project's run configurations, once read.
     run_configs: HashMap<ProjectId, Vec<RunConfig>>,
     _saves: Vec<Subscription>,
@@ -175,8 +175,8 @@ impl Projects {
         id
     }
 
-    /// The files in the worktree at `worktree`, once read.
-    pub fn files(&self, worktree: &Path) -> Option<&WorktreeFiles> {
+    /// The files in the worktree at `worktree`, once read. Shared, as the changes are.
+    pub fn files(&self, worktree: &Path) -> Option<&Arc<WorktreeFiles>> {
         self.files.get(worktree)
     }
 
@@ -196,7 +196,7 @@ impl Projects {
     }
 
     pub(crate) fn insert_files(&mut self, worktree: PathBuf, files: WorktreeFiles) {
-        self.files.insert(worktree, files);
+        self.files.insert(worktree, Arc::new(files));
     }
 
     /// The run configurations `project` saves, once read. None until then.
@@ -239,8 +239,9 @@ impl Projects {
         self.run_configs.insert(project, configs);
     }
 
-    /// The changes in the worktree at `worktree`, once read.
-    pub fn changes(&self, worktree: &Path) -> Option<&Changes> {
+    /// The changes in the worktree at `worktree`, once read. They're shared, so a view can keep
+    /// them without copying every file and commit.
+    pub fn changes(&self, worktree: &Path) -> Option<&Arc<Changes>> {
         self.changes.get(worktree)
     }
 
@@ -303,7 +304,7 @@ impl Projects {
     }
 
     pub(crate) fn insert_changes(&mut self, worktree: PathBuf, changes: Changes) {
-        self.changes.insert(worktree, changes);
+        self.changes.insert(worktree, Arc::new(changes));
     }
 
     /// The file `key` names, once [`Self::open_document`] has read it.
@@ -459,19 +460,25 @@ impl Projects {
         let Some(changes) = self.changes.get_mut(worktree) else {
             return;
         };
-        let mut pathspecs = Vec::new();
-        for path in paths {
-            changes.set_staged(&path, staged);
-            // A rename unstages with the path it came from. Git refuses that path when staging,
-            // since the index no longer has it.
-            if !staged
-                && let Some(from) = changes
-                    .file(&path)
-                    .and_then(|file| file.renamed_from.clone())
-            {
-                pathspecs.push(from);
+        let changes = Arc::make_mut(changes);
+        changes.set_staged_paths(&paths, staged);
+        // A rename unstages with the path it came from. Git refuses that path when staging,
+        // since the index no longer has it.
+        let renamed: HashMap<&Path, &Path> = if staged {
+            HashMap::new()
+        } else {
+            changes
+                .uncommitted
+                .iter()
+                .filter_map(|file| Some((file.path.as_path(), file.renamed_from.as_deref()?)))
+                .collect()
+        };
+        let mut pathspecs = Vec::with_capacity(paths.len());
+        for path in &paths {
+            if let Some(from) = renamed.get(path.as_path()) {
+                pathspecs.push(from.to_path_buf());
             }
-            pathspecs.push(path);
+            pathspecs.push(path.clone());
         }
         cx.notify();
 

@@ -1,24 +1,115 @@
 //! The Changes panel: pull and push in its header, the branch as a timeline, and the commit box
 //! pinned under it.
 
+use std::sync::Arc;
+
 use components::{
     Button, ButtonStyle, FadeText, Icon, IconButton, IconName, RingFill, SegmentedControl,
     StatusRing, TimelineLine, TimelineNode, TimelineRow,
 };
-use gpui::{AnyElement, App, Context, SharedString, Window, deferred, div, prelude::*};
-use model::{Changes, Commit, Staging, short_sha};
+use gpui::{
+    AnyElement, App, Context, ListAlignment, ListState, Pixels, SharedString, Window, deferred,
+    div, list, prelude::*, px,
+};
+use model::{Changes, Commit, FileKey, Staging, short_sha};
 use strum::VariantArray;
-use theme::{ActiveTheme, IconSize, Typeset, dp};
+use theme::{ActiveTheme, Dp, IconSize, Typeset, dp};
 
-use super::{Control, EARLIER_FOLDED, FileLayout, ProjectView, Source};
-use crate::{PANEL, notices, view_callback, view_callback_with};
+use super::{Control, EARLIER_FOLDED, FileLayout, ProjectView, Source, files::FileRow};
+use crate::{PANEL, list_splice::splice_changed, notices, view_callback, view_callback_with};
+
+/// How far past the panel the timeline lays out rows, so scrolling doesn't show gaps.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "measured against the viewport in pixels"
+)]
+const OVERDRAW: Pixels = px(200.);
+
+/// One row of the timeline. The list draws only the rows on screen, so thousands of files cost
+/// no more than a screenful. Rows that compare equal keep their height, so a change measures
+/// only the rows that differ.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Item {
+    /// The node that stages everything, the label that folds the files, and the layout switcher.
+    Uncommitted,
+    UncommittedFile(FileRow),
+    /// The marker where committed work starts.
+    Head,
+    /// The marker where pushed work starts.
+    Origin,
+    Commit {
+        sha: SharedString,
+        era: Era,
+        open: bool,
+    },
+    /// A row of the open commit's files.
+    CommitFile {
+        sha: SharedString,
+        era: Era,
+        row: FileRow,
+    },
+    /// The space under the open commit's files.
+    CommitFilesEnd {
+        era: Era,
+    },
+    /// The line fading out under the last commit.
+    End,
+    /// Expand or Collapse under the earlier commits.
+    EarlierToggle,
+}
+
+/// The timeline's rows, and what they were laid out from.
+pub(super) struct Timeline {
+    list: ListState,
+    items: Vec<Item>,
+    /// What `items` came from, to lay them out again only when it changes.
+    inputs: Option<TimelineInputs>,
+    /// The sizes the rows were measured at: the rem size, row height and body line height.
+    metrics: Option<(Pixels, Dp, Dp)>,
+}
+
+impl Timeline {
+    pub(super) fn new() -> Self {
+        Self {
+            list: ListState::new(0, ListAlignment::Top, OVERDRAW),
+            items: Vec::new(),
+            inputs: None,
+            metrics: None,
+        }
+    }
+}
+
+/// Everything the timeline's rows depend on, besides hover and selection, which only change how
+/// a row looks.
+struct TimelineInputs {
+    changes: Arc<Changes>,
+    layout: FileLayout,
+    uncommitted_open: bool,
+    earlier_expanded: bool,
+    open_commit: Option<SharedString>,
+    folded: Vec<FileKey>,
+}
+
+impl PartialEq for TimelineInputs {
+    fn eq(&self, other: &Self) -> bool {
+        // Changes are replaced, never changed in place, while anything else holds them.
+        Arc::ptr_eq(&self.changes, &other.changes)
+            && self.layout == other.layout
+            && self.uncommitted_open == other.uncommitted_open
+            && self.earlier_expanded == other.earlier_expanded
+            && self.open_commit == other.open_commit
+            && self.folded == other.folded
+    }
+}
 
 impl ProjectView {
     pub(super) fn render_changes_panel(
         &mut self,
-        changes: &Changes,
+        changes: &Arc<Changes>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        self.update_timeline(changes, window, cx);
         let colors = &cx.theme().colors;
         div()
             .flex()
@@ -30,20 +121,187 @@ impl ProjectView {
             .bg(colors.surface_panel)
             .child(self.header(changes, cx))
             .child(
-                div()
-                    .id("timeline")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .pl_1()
-                    .pr_2()
-                    .overflow_y_scroll()
-                    .child(self.uncommitted(changes, cx))
-                    .children(self.uncommitted_files(changes, cx))
-                    .children(self.history(changes, cx)),
+                div().flex_1().min_h_0().pl_1().pr_2().child(
+                    list(
+                        self.timeline.list.clone(),
+                        cx.processor(|this, index, _, cx| {
+                            // The list lays each row out on its own, so it must ask for the width.
+                            div()
+                                .flex()
+                                .flex_col()
+                                .w_full()
+                                .child(this.render_item(index, cx))
+                                .into_any_element()
+                        }),
+                    )
+                    .size_full(),
+                ),
             )
             .child(self.commit_box(changes, cx))
+    }
+
+    /// Lays out the timeline's rows again when what they show changed, and tells the list which
+    /// ones to measure again.
+    fn update_timeline(&mut self, changes: &Arc<Changes>, window: &Window, cx: &App) {
+        let density = cx.density();
+        let metrics = (
+            window.rem_size(),
+            density.row_height,
+            density.body.line_height,
+        );
+        if self
+            .timeline
+            .metrics
+            .replace(metrics)
+            .is_some_and(|measured| measured != metrics)
+        {
+            self.timeline.list.remeasure();
+        }
+        let inputs = TimelineInputs {
+            changes: changes.clone(),
+            layout: self.layout,
+            uncommitted_open: self.uncommitted_open,
+            earlier_expanded: self.earlier_expanded,
+            open_commit: self.open_commit.clone(),
+            folded: self.folded.clone(),
+        };
+        if self.timeline.inputs.as_ref() == Some(&inputs) {
+            return;
+        }
+        let items = self.timeline_items(changes);
+        splice_changed(
+            &self.timeline.list,
+            &self.timeline.items,
+            &items,
+            |old, new| old == new,
+        );
+        self.timeline.items = items;
+        self.timeline.inputs = Some(inputs);
+    }
+
+    /// The uncommitted work and its files, then HEAD, the branch's commits newest first with
+    /// origin where pushed work starts, then the base's from before the branch, as the line
+    /// fades out.
+    fn timeline_items(&self, changes: &Changes) -> Vec<Item> {
+        let mut items = vec![Item::Uncommitted];
+        if self.uncommitted_open && !changes.uncommitted.is_empty() {
+            items.extend(
+                self.file_rows(&Source::Uncommitted, &changes.uncommitted)
+                    .into_iter()
+                    .map(Item::UncommittedFile),
+            );
+        }
+        items.push(Item::Head);
+        let mut origin_shown = changes.upstream.is_none();
+        for commit in &changes.commits {
+            if commit.pushed && !origin_shown {
+                items.push(Item::Origin);
+                origin_shown = true;
+            }
+            self.commit_items(commit, Era::Branch, &mut items);
+        }
+        let folded = !self.earlier_expanded;
+        let more = changes.earlier.len() > EARLIER_FOLDED;
+        let shown = if folded {
+            EARLIER_FOLDED
+        } else {
+            changes.earlier.len()
+        };
+        for (index, commit) in changes.earlier.iter().take(shown).enumerate() {
+            let era = if folded && more && index + 1 == shown {
+                Era::Fading
+            } else {
+                Era::Earlier
+            };
+            self.commit_items(commit, era, &mut items);
+        }
+        // A fading commit already ends the line.
+        if !(folded && more) {
+            items.push(Item::End);
+        }
+        if more {
+            items.push(Item::EarlierToggle);
+        }
+        items
+    }
+
+    /// The commit's row, then its files while it's open.
+    fn commit_items(&self, commit: &Commit, era: Era, items: &mut Vec<Item>) {
+        let open = self.open_commit.as_ref() == Some(&commit.sha);
+        items.push(Item::Commit {
+            sha: commit.sha.clone(),
+            era,
+            open,
+        });
+        if open {
+            let source = Source::Commit(commit.sha.clone());
+            items.extend(
+                self.file_rows(&source, &commit.files)
+                    .into_iter()
+                    .map(|row| Item::CommitFile {
+                        sha: commit.sha.clone(),
+                        era,
+                        row,
+                    }),
+            );
+            items.push(Item::CommitFilesEnd { era });
+        }
+    }
+
+    /// Draws the timeline's row at `index`, which the list asks for only while it's on screen.
+    fn render_item(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(item) = self.timeline.items.get(index).cloned() else {
+            return div().into_any_element();
+        };
+        let changes = self.changes(cx);
+        match item {
+            Item::Uncommitted => self.uncommitted(&changes, cx).into_any_element(),
+            Item::UncommittedFile(row) => file_line(
+                TimelineLine::Dashed,
+                self.render_file_row(&Source::Uncommitted, &changes.uncommitted, &row, cx),
+            )
+            .into_any_element(),
+            Item::Head => marker("HEAD", TimelineLine::Dashed, cx).into_any_element(),
+            Item::Origin => {
+                let remote = changes
+                    .upstream
+                    .as_ref()
+                    .map(|upstream| upstream.remote.clone());
+                marker(remote.unwrap_or_default(), TimelineLine::Solid, cx).into_any_element()
+            }
+            Item::Commit { sha, era, .. } => match changes.commit(&sha) {
+                Some(commit) => self.commit_row(commit, era, cx),
+                None => div().into_any_element(),
+            },
+            Item::CommitFile { sha, era, row } => {
+                let files = changes
+                    .commit(&sha)
+                    .map_or(&[][..], |commit| commit.files.as_slice());
+                let source = Source::Commit(sha);
+                file_line(
+                    TimelineLine::Solid,
+                    self.render_file_row(&source, files, &row, cx),
+                )
+                .when(era == Era::Fading, |row| row.opacity(0.4))
+                .into_any_element()
+            }
+            // A fading commit's line fades out under its files instead.
+            Item::CommitFilesEnd { era: Era::Fading } => TimelineRow::new()
+                .h(dp(24.))
+                .above(TimelineLine::Fade)
+                .opacity(0.4)
+                .into_any_element(),
+            Item::CommitFilesEnd { .. } => TimelineRow::new()
+                .h(dp(8.))
+                .line(TimelineLine::Solid)
+                .into_any_element(),
+            Item::End => TimelineRow::new()
+                .h(dp(24.))
+                .above(TimelineLine::Fade)
+                .node_y(dp(24.))
+                .into_any_element(),
+            Item::EarlierToggle => self.earlier_toggle(cx),
+        }
     }
 
     /// How far the branch is from its base, then fetch, pull and push.
@@ -245,72 +503,6 @@ impl ProjectView {
             )
     }
 
-    fn uncommitted_files(&self, changes: &Changes, cx: &mut Context<Self>) -> Option<TimelineRow> {
-        if !self.uncommitted_open || changes.uncommitted.is_empty() {
-            return None;
-        }
-        Some(
-            TimelineRow::new().line(TimelineLine::Dashed).child(
-                div()
-                    .id("uncommitted-files")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .children(self.file_rows(&Source::Uncommitted, &changes.uncommitted, cx)),
-            ),
-        )
-    }
-
-    /// HEAD, the branch's commits newest first with origin where pushed work starts, then the
-    /// base's from before the branch, as the line fades out.
-    fn history(&self, changes: &Changes, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let mut rows = vec![marker("HEAD", TimelineLine::Dashed, cx).into_any_element()];
-        let mut origin_shown = changes.upstream.is_none();
-        for commit in &changes.commits {
-            if commit.pushed && !origin_shown {
-                let remote = changes
-                    .upstream
-                    .as_ref()
-                    .map(|upstream| upstream.remote.clone());
-                rows.push(
-                    marker(remote.unwrap_or_default(), TimelineLine::Solid, cx).into_any_element(),
-                );
-                origin_shown = true;
-            }
-            rows.push(self.commit_row(commit, Era::Branch, cx));
-        }
-        let folded = !self.earlier_expanded;
-        let more = changes.earlier.len() > EARLIER_FOLDED;
-        let shown = if folded {
-            EARLIER_FOLDED
-        } else {
-            changes.earlier.len()
-        };
-        for (index, commit) in changes.earlier.iter().take(shown).enumerate() {
-            let era = if folded && more && index + 1 == shown {
-                Era::Fading
-            } else {
-                Era::Earlier
-            };
-            rows.push(self.commit_row(commit, era, cx));
-        }
-        // A fading commit already ends the line.
-        if !(folded && more) {
-            rows.push(
-                TimelineRow::new()
-                    .h(dp(24.))
-                    .above(TimelineLine::Fade)
-                    .node_y(dp(24.))
-                    .into_any_element(),
-            );
-        }
-        if more {
-            rows.push(self.earlier_toggle(cx));
-        }
-        rows
-    }
-
     /// Expand under the first few earlier commits, or Collapse under all of them.
     fn earlier_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
         let expanded = self.earlier_expanded;
@@ -396,6 +588,8 @@ impl ProjectView {
 
         let row = TimelineRow::new().line(TimelineLine::Solid);
         let row = match era {
+            // Open, its files carry the line on and fade it out.
+            Era::Fading if open => row.opacity(0.4),
             Era::Fading => row.below(TimelineLine::Fade).opacity(0.4),
             Era::Branch | Era::Earlier => row,
         };
@@ -424,18 +618,6 @@ impl ProjectView {
                             .text_color(colors.text_muted)
                             .child(description)
                     }))
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("{}-files", commit.sha)))
-                            .flex()
-                            .flex_col()
-                            .pb_2()
-                            .children(self.file_rows(
-                                &Source::Commit(commit.sha.clone()),
-                                &commit.files,
-                                cx,
-                            )),
-                    )
                 }),
         )
         .into_any_element()
@@ -489,8 +671,15 @@ impl ProjectView {
     }
 }
 
+/// A row of a file list on the timeline, beside `line`.
+fn file_line(line: TimelineLine, row: AnyElement) -> TimelineRow {
+    TimelineRow::new()
+        .line(line)
+        .child(div().flex().flex_col().flex_1().min_w_0().child(row))
+}
+
 /// Where a commit sits on the timeline, which sets how it's drawn.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Era {
     /// The branch's own.
     Branch,

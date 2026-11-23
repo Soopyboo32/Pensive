@@ -2,13 +2,18 @@
 //! collapse all, and a filter field.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    ops::Range,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use components::{Icon, IconButton, IconName, Kbd, ListRow, StatusMark};
-use gpui::{AnyElement, App, Context, Focusable, Window, div, prelude::*};
-use model::{FileKey, FileStatus, Source};
+use gpui::{
+    AnyElement, App, Context, Focusable, ScrollStrategy, UniformListScrollHandle, Window, div,
+    prelude::*, uniform_list,
+};
+use model::{Changes, FileKey, FileStatus, Source, WorktreeFiles};
 use theme::{ActiveTheme, ColorRole, IconSize, Typeset, dp};
 
 use super::{
@@ -18,9 +23,40 @@ use super::{
         DOTFILES, FOLD, FOLLOW, GIT_STATUS, GUIDES, GitStatus, Guides, IGNORED, OPEN_WITH,
         OpenWith, SORT,
     },
-    tree::RowKind,
+    tree::{Row, RowKind},
 };
 use crate::{PANEL, view_callback, view_callback_with};
+
+/// The Files panel's rows, laid out again only when what they show changes, and drawn only
+/// while they're on screen, so a worktree with tens of thousands of files stays quick.
+#[derive(Default)]
+pub(super) struct FileTree {
+    scroll: UniformListScrollHandle,
+    rows: Vec<Row>,
+    /// What `rows` came from.
+    inputs: Option<TreeInputs>,
+    /// Each uncommitted file's status, by its path.
+    statuses: HashMap<PathBuf, FileStatus>,
+    /// The changes `statuses` came from.
+    statuses_of: Option<Arc<Changes>>,
+}
+
+struct TreeInputs {
+    files: Arc<WorktreeFiles>,
+    open: HashSet<PathBuf>,
+    filter: String,
+    options: TreeOptions,
+}
+
+impl PartialEq for TreeInputs {
+    fn eq(&self, other: &Self) -> bool {
+        // The files are replaced, never changed in place.
+        Arc::ptr_eq(&self.files, &other.files)
+            && self.open == other.open
+            && self.filter == other.filter
+            && self.options == other.options
+    }
+}
 
 impl ProjectView {
     pub(super) fn render_files_panel(
@@ -28,6 +64,7 @@ impl ProjectView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        self.update_tree(cx);
         let colors = &cx.theme().colors;
         div()
             .id("files-panel")
@@ -45,18 +82,47 @@ impl ProjectView {
             .child(self.files_header(cx))
             .child(self.file_filter(window, cx))
             .child(
-                div()
-                    .id("file-tree")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .px_2()
-                    .pt_1()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.files_scroll)
-                    .children(self.tree_rows(cx)),
+                uniform_list(
+                    "file-tree",
+                    self.tree.rows.len(),
+                    cx.processor(|this, range, _, cx| this.tree_rows(range, cx)),
+                )
+                .flex_1()
+                .min_h_0()
+                .px_2()
+                .pt_1()
+                .track_scroll(&self.tree.scroll),
             )
+    }
+
+    /// Lays out the tree's rows again when the files, open folders, filter or settings changed,
+    /// and the statuses again when the changes did.
+    fn update_tree(&mut self, cx: &App) {
+        let Some(files) = self.projects.read(cx).files(&self.worktree).cloned() else {
+            self.tree.rows.clear();
+            self.tree.inputs = None;
+            return;
+        };
+        let inputs = TreeInputs {
+            files,
+            open: self.files_open.clone(),
+            filter: self.file_filter.read(cx).text().to_string(),
+            options: tree_options(cx),
+        };
+        if self.tree.inputs.as_ref() != Some(&inputs) {
+            self.tree.rows = rows(&inputs.files, &inputs.open, &inputs.filter, &inputs.options);
+            self.tree.inputs = Some(inputs);
+        }
+        let changes = self.changes(cx);
+        if !self
+            .tree
+            .statuses_of
+            .as_ref()
+            .is_some_and(|of| Arc::ptr_eq(of, &changes))
+        {
+            self.tree.statuses = file_statuses(&changes);
+            self.tree.statuses_of = Some(changes);
+        }
     }
 
     /// The worktree's name, then new file, select the open file and collapse all.
@@ -145,15 +211,9 @@ impl ProjectView {
             .child(Kbd::new("Ctrl P"))
     }
 
-    fn tree_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let projects = self.projects.read(cx);
-        let Some(files) = projects.files(&self.worktree) else {
-            return Vec::new();
-        };
-        let options = tree_options(cx);
-        let filter = self.file_filter.read(cx).text().to_string();
-        let rows = rows(files, &self.files_open, &filter, &options);
-        let statuses = self.file_statuses(cx);
+    /// Draws the tree's rows in `range`, which the list asks for only while they're on screen.
+    fn tree_rows(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let statuses = &self.tree.statuses;
         let style = GIT_STATUS.get(cx);
         let guides = match GUIDES.get(cx) {
             Guides::Always => true,
@@ -165,17 +225,20 @@ impl ProjectView {
             .as_ref()
             .filter(|key| key.source == Source::Uncommitted)
             .map(|key| key.path.clone());
-        rows.into_iter()
+        let start = range.start;
+        self.tree.rows[range.start..range.end.min(self.tree.rows.len())]
+            .iter()
             .enumerate()
-            .map(|(index, row)| {
+            .map(|(offset, row)| {
+                let index = start + offset;
                 let folder = matches!(row.kind, RowKind::Folder { .. });
                 let status = if folder {
-                    folder_status(&statuses, &row.path)
+                    folder_status(statuses, &row.path)
                 } else {
                     statuses.get(&row.path).copied()
                 };
                 let path = row.path.clone();
-                let base = ListRow::new(index, row.name)
+                let base = ListRow::new(index, row.name.clone())
                     .depth(row.depth)
                     .dimmed(row.ignored)
                     .guides(guides);
@@ -187,7 +250,7 @@ impl ProjectView {
                     }
                     None => base,
                 };
-                match row.kind {
+                let row = match row.kind {
                     RowKind::Folder { open, openable } => {
                         base.disclosure(open).muted().when(openable, |folder| {
                             folder.on_click(view_callback_with(
@@ -212,18 +275,15 @@ impl ProjectView {
                                 }
                             },
                         )),
-                }
-                .into_any_element()
+                };
+                // The list lays each row out on its own, so it must ask for the width.
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .child(row)
+                    .into_any_element()
             })
-            .collect()
-    }
-
-    /// Each uncommitted file's status, by its path: the worktree's side, or else the index's.
-    fn file_statuses(&self, cx: &App) -> HashMap<PathBuf, FileStatus> {
-        self.changes(cx)
-            .uncommitted
-            .iter()
-            .filter_map(|file| Some((file.path.clone(), file.worktree.or(file.index)?)))
             .collect()
     }
 
@@ -261,7 +321,9 @@ impl ProjectView {
             .iter()
             .position(|row| row.path == path);
         if let Some(index) = index {
-            self.files_scroll.scroll_to_item(index);
+            self.tree
+                .scroll
+                .scroll_to_item(index, ScrollStrategy::Nearest);
         }
         cx.notify();
     }
@@ -278,6 +340,15 @@ impl ProjectView {
             self.files_open.extend(ancestors(path));
         }
     }
+}
+
+/// Each uncommitted file's status, by its path: the worktree's side, or else the index's.
+fn file_statuses(changes: &Changes) -> HashMap<PathBuf, FileStatus> {
+    changes
+        .uncommitted
+        .iter()
+        .filter_map(|file| Some((file.path.clone(), file.worktree.or(file.index)?)))
+        .collect()
 }
 
 /// The tree's options, from the panel's settings.

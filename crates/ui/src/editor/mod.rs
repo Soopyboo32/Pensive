@@ -25,7 +25,10 @@ use rows::{Row, rows};
 use saving::AUTO_SAVE_DELAY;
 pub(crate) use saving::{CATEGORY, SAVE, SaveMode, declare_settings};
 
-use crate::text_editing::{Selection, TextEditing, movement};
+use crate::{
+    list_splice::splice_changed,
+    text_editing::{Selection, TextEditing, movement},
+};
 
 /// What Tab inserts, unless the line is indented with tabs.
 const INDENT: &str = "    ";
@@ -188,28 +191,9 @@ impl Editor {
             }
             None => Vec::new(),
         };
-        let same = |old: &Row, new: &Row| old.is_fold() == new.is_fold();
-        let prefix = self
-            .rows
-            .iter()
-            .zip(&rows)
-            .take_while(|(old, new)| same(old, new))
-            .count();
-        let longest = self.rows.len().min(rows.len()) - prefix;
-        let suffix = self
-            .rows
-            .iter()
-            .rev()
-            .zip(rows.iter().rev())
-            .take(longest)
-            .take_while(|(old, new)| same(old, new))
-            .count();
-        if prefix + suffix < self.rows.len().max(rows.len()) {
-            self.list.splice(
-                prefix..self.rows.len() - suffix,
-                rows.len() - prefix - suffix,
-            );
-        }
+        splice_changed(&self.list, &self.rows, &rows, |old, new| {
+            old.is_fold() == new.is_fold()
+        });
         self.rows = rows;
         cx.notify();
     }

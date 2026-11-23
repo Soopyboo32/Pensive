@@ -14,17 +14,19 @@ mod tree;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
 use components::{IconName, Rail, RailItem};
 use gpui::{
-    App, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle,
-    SharedString, Subscription, Task, Window, actions, div, prelude::*,
+    App, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString,
+    Subscription, Task, Window, actions, div, prelude::*,
 };
 use model::{Changes, FileChange, FileKey, Notice, ProjectId, Projects, Source, Staging};
 use strum::VariantArray;
 
+use self::{changes_panel::Timeline, files_panel::FileTree};
 use crate::{
     NOTICE_FOR, clear_after,
     editor::Editor,
@@ -152,6 +154,8 @@ pub struct ProjectView {
     /// Whether every earlier commit read shows, rather than the first few.
     earlier_expanded: bool,
     open_commit: Option<SharedString>,
+    /// The Changes panel's rows.
+    timeline: Timeline,
     selected: Option<FileKey>,
     /// A symbol of the selected file, picked in the symbol layout.
     selected_symbol: Option<usize>,
@@ -172,7 +176,8 @@ pub struct ProjectView {
     /// The Files panel's open folders, by their paths.
     files_open: HashSet<PathBuf>,
     files_hovered: bool,
-    files_scroll: ScrollHandle,
+    /// The Files panel's rows.
+    tree: FileTree,
     file_filter: Entity<TextInput>,
     message: Entity<TextInput>,
     /// Shows the selected file.
@@ -241,6 +246,7 @@ impl ProjectView {
             uncommitted_open: true,
             earlier_expanded: false,
             open_commit: None,
+            timeline: Timeline::new(),
             selected: None,
             selected_symbol: None,
             folded: Vec::new(),
@@ -255,7 +261,7 @@ impl ProjectView {
             gear_hovered: false,
             files_open: HashSet::new(),
             files_hovered: false,
-            files_scroll: ScrollHandle::new(),
+            tree: FileTree::default(),
             file_filter,
             message,
             editor,
@@ -276,8 +282,9 @@ impl ProjectView {
         }
     }
 
-    /// The worktree's changes as cached, or none until they've been read.
-    fn changes(&self, cx: &App) -> Changes {
+    /// The worktree's changes as cached, or none until they've been read. Shared with the cache,
+    /// so this copies no files.
+    fn changes(&self, cx: &App) -> Arc<Changes> {
         self.projects
             .read(cx)
             .changes(&self.worktree)
@@ -641,7 +648,9 @@ impl Render for ProjectView {
             .child(self.rail(cx))
             .child(match self.panel {
                 Panel::Files => self.render_files_panel(window, cx).into_any_element(),
-                _ => self.render_changes_panel(&changes, cx).into_any_element(),
+                _ => self
+                    .render_changes_panel(&changes, window, cx)
+                    .into_any_element(),
             })
             .child(self.render_main_view(cx))
     }

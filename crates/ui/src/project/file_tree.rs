@@ -14,6 +14,7 @@ use super::{
 };
 
 /// What decides which rows show, read from the panel's settings.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TreeOptions {
     pub dotfiles: bool,
     pub ignored: IgnoredFiles,

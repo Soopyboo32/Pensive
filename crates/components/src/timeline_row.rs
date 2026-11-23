@@ -125,14 +125,28 @@ impl RenderOnce for TimelineRow {
                 TimelineLine::Dashed => Some(base.child(dashes(line_color))),
             }
         };
-        let above = segment(self.above).map(|line| match self.node_y {
-            Some(y) => line.top_0().h(y),
-            None => line.top_0().h(relative(0.5)),
-        });
-        let below = segment(self.below).map(|line| match self.node_y {
-            Some(y) => line.top(y).bottom_0(),
-            None => line.top(relative(0.5)).bottom_0(),
-        });
+        // With nothing on it, a dashed line is painted in one piece, so its dashes run on evenly
+        // through rows stacked one under another, such as a list of files.
+        let whole = matches!(self.node, TimelineNode::None)
+            && self.above == TimelineLine::Dashed
+            && self.below == TimelineLine::Dashed;
+        let (above, below) = if whole {
+            (
+                segment(self.above).map(|line| line.top_0().bottom_0()),
+                None,
+            )
+        } else {
+            (
+                segment(self.above).map(|line| match self.node_y {
+                    Some(y) => line.top_0().h(y),
+                    None => line.top_0().h(relative(0.5)),
+                }),
+                segment(self.below).map(|line| match self.node_y {
+                    Some(y) => line.top(y).bottom_0(),
+                    None => line.top(relative(0.5)).bottom_0(),
+                }),
+            )
+        };
         let dot = |size: Dp, color: Hsla| div().size(size).rounded_full().bg(color);
         let node = match self.node {
             TimelineNode::None => None,

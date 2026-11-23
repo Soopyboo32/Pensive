@@ -7,6 +7,13 @@ use imara_diff::{Algorithm, Diff, InternedInput, sources::lines};
 
 /// How far into a file Git looks for a NUL byte before calling it binary.
 const BINARY_PROBE: usize = 8000;
+/// The most lines, both sides together, diffed with the histogram algorithm. It reads best on
+/// code, but its time grows with the lines times the changes: 34 seconds for a 300,000-line file
+/// with every fifth line changed, where Myers takes 26 milliseconds.
+const MAX_HISTOGRAM_LINES: usize = 20_000;
+/// The longest pair of lines, in bytes together, whose changed words are marked. The editor
+/// marks them every frame, and on a minified file's lines that takes tens of milliseconds.
+const MAX_WORD_DIFF_BYTES: usize = 20_000;
 
 /// One side of a changed file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,7 +76,12 @@ pub struct ChangedLines {
 impl LineDiff {
     pub fn new(old: &str, new: &str) -> Self {
         let input = InternedInput::new(lines(old), lines(new));
-        let mut diff = Diff::compute(Algorithm::Histogram, &input);
+        let algorithm = if input.before.len() + input.after.len() <= MAX_HISTOGRAM_LINES {
+            Algorithm::Histogram
+        } else {
+            Algorithm::Myers
+        };
+        let mut diff = Diff::compute(algorithm, &input);
         diff.postprocess_lines(&input);
         Self {
             changes: diff
@@ -96,8 +108,12 @@ pub(crate) fn line_ranges(text: &str) -> Vec<Range<usize>> {
 }
 
 /// The byte ranges of the words that differ between two lines that pair up, on each side. When
-/// nothing is shared, neither side gets any, since the line's own fill already says it all.
+/// nothing is shared, neither side gets any, since the line's own fill already says it all. Nor
+/// do lines too long to compare quickly.
 pub fn changed_words(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+    if old.len() + new.len() > MAX_WORD_DIFF_BYTES {
+        return (Vec::new(), Vec::new());
+    }
     let old_words = words(old);
     let new_words = words(new);
     let mut input = InternedInput::default();
@@ -212,6 +228,20 @@ mod tests {
     }
 
     #[test]
+    fn a_large_file_with_many_changes_diffs_quickly() {
+        let old = numbered(300_000);
+        let new: String = (1..=300_000)
+            .map(|line| match line % 5 {
+                0 => format!("edited {line}\n"),
+                _ => format!("line {line}\n"),
+            })
+            .collect();
+        let changes = changes(&old, &new);
+        assert_eq!(changes.len(), 60_000);
+        assert_eq!(changes[0], (4..5, 4..5));
+    }
+
+    #[test]
     fn a_new_file_is_all_added_and_identical_text_has_no_changes() {
         assert_eq!(changes("", "a\nb\n"), [(0..0, 0..2)]);
         assert!(changes("same\n", "same\n").is_empty());
@@ -228,6 +258,13 @@ mod tests {
     #[test]
     fn a_line_with_nothing_in_common_marks_no_words() {
         assert_eq!(changed_words("alpha", "beta"), (Vec::new(), Vec::new()));
+    }
+
+    #[test]
+    fn lines_too_long_to_compare_mark_no_words() {
+        let old = "word ".repeat(MAX_WORD_DIFF_BYTES / 5);
+        let new = format!("{old}more");
+        assert_eq!(changed_words(&old, &new), (Vec::new(), Vec::new()));
     }
 
     #[test]
