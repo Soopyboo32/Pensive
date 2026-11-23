@@ -60,6 +60,11 @@ refineable = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
 debug = "line-tables-only"
 opt-level = 2
 
+# The mock crate is the exception: it loops over every pixel of each render,
+# which takes longer unoptimized than drawing the render did.
+[profile.dev.package.mock]
+opt-level = 2
+
 # Opt-in full debug info for dependencies, unoptimized so a debugger can step
 # through them. See CONTRIBUTING.md.
 [profile.debug-deps]
