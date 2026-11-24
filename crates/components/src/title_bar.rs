@@ -355,25 +355,24 @@ fn drag_area(id: &'static str, window: &mut Window, cx: &mut App) -> Stateful<Di
         })
 }
 
-/// Windows answers these itself through the control area, for snap layouts. Elsewhere the click
-/// does it.
+/// Windows answers these itself through the control area, for snap layouts. It does so only
+/// when the mouse up isn't handled first, and a button's click stops it, so there the button
+/// takes no click. Elsewhere the click does it.
 fn window_control(id: &'static str, icon: IconName, area: WindowControlArea) -> impl IntoElement {
-    div().occlude().window_control_area(area).child(
-        IconButton::new(id, icon)
-            .size(dp(28.))
-            .color(|colors| colors.text_faint)
-            .on_click(move |window, _| {
-                if cfg!(target_os = "windows") {
-                    return;
-                }
-                match area {
-                    WindowControlArea::Min => window.minimize_window(),
-                    WindowControlArea::Max => window.zoom_window(),
-                    WindowControlArea::Close => window.remove_window(),
-                    WindowControlArea::Drag => {}
-                }
-            }),
-    )
+    let button = IconButton::new(id, icon)
+        .size(dp(28.))
+        .color(|colors| colors.text_faint);
+    let button = if cfg!(target_os = "windows") {
+        button
+    } else {
+        button.on_click(move |window, _| match area {
+            WindowControlArea::Min => window.minimize_window(),
+            WindowControlArea::Max => window.zoom_window(),
+            WindowControlArea::Close => window.remove_window(),
+            WindowControlArea::Drag => {}
+        })
+    };
+    div().occlude().window_control_area(area).child(button)
 }
 
 #[cfg(feature = "mocks")]
