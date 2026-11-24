@@ -29,6 +29,7 @@ pub use diff::{
 pub use document::{Document, DocumentEvent, DocumentSide, DocumentSnapshot};
 pub use git::{GitBackend, Repository};
 pub use git_problem::{GitProblem, GitVersion, Platform};
+pub use language::{TokenRole, TokenSpan};
 pub use notice::{FixtureGap, Notice, Origin, Severity};
 pub use notices::{Held, Notices};
 pub use projects::{Branch, Project, ProjectId, Projects, Work, WorkKind, Worktree};

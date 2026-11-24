@@ -1,0 +1,143 @@
+//! Bundled grammars and their upstream highlight queries (Arborium 2.18.2).
+use super::native::Grammar;
+use std::{borrow::Cow, sync::OnceLock};
+
+fn highlights<'a>(language: &str, upstream: &'a str) -> Cow<'a, str> {
+    match language {
+        // Keep upstream rules while specializing language-specific token roles.
+        "xml" => format!("{upstream}\n{}", include_str!("../../queries/xml.scm")).into(),
+        "rust" => format!("{upstream}\n{}", include_str!("../../queries/rust.scm")).into(),
+        _ => upstream.into(),
+    }
+}
+
+macro_rules! grammars {
+    ($($name:literal => $module:ident),* $(,)?) => {
+        pub(super) fn grammar(language: &str) -> Option<&'static Grammar> {
+            match language {
+                $($name => {
+                    static GRAMMAR: OnceLock<Option<Grammar>> = OnceLock::new();
+                    GRAMMAR.get_or_init(|| Grammar::new(
+                        $module::language().into(),
+                        &highlights($name, &$module::HIGHLIGHTS_QUERY),
+                    )).as_ref()
+                },)*
+                _ => None,
+            }
+        }
+        pub(super) const LANGUAGES: &[&str] = &[$($name),*];
+    };
+}
+
+grammars! {
+    "ada" => arborium_ada,
+    "agda" => arborium_agda,
+    "asciidoc" => arborium_asciidoc,
+    "asm" => arborium_asm,
+    "awk" => arborium_awk,
+    "bash" => arborium_bash,
+    "batch" => arborium_batch,
+    "c" => arborium_c,
+    "c-sharp" => arborium_c_sharp,
+    "caddy" => arborium_caddy,
+    "capnp" => arborium_capnp,
+    "cedar" => arborium_cedar,
+    "cedarschema" => arborium_cedarschema,
+    "clojure" => arborium_clojure,
+    "cmake" => arborium_cmake,
+    "cobol" => arborium_cobol,
+    "commonlisp" => arborium_commonlisp,
+    "cpp" => arborium_cpp,
+    "css" => arborium_css,
+    "d" => arborium_d,
+    "dart" => arborium_dart,
+    "devicetree" => arborium_devicetree,
+    "diff" => arborium_diff,
+    "dockerfile" => arborium_dockerfile,
+    "dot" => arborium_dot,
+    "elisp" => arborium_elisp,
+    "elixir" => arborium_elixir,
+    "elm" => arborium_elm,
+    "erlang" => arborium_erlang,
+    "fish" => arborium_fish,
+    "fsharp" => arborium_fsharp,
+    "gitattributes" => arborium_gitattributes,
+    "gleam" => arborium_gleam,
+    "glsl" => arborium_glsl,
+    "go" => arborium_go,
+    "graphql" => arborium_graphql,
+    "groovy" => arborium_groovy,
+    "haskell" => arborium_haskell,
+    "hcl" => arborium_hcl,
+    "hlsl" => arborium_hlsl,
+    "html" => arborium_html,
+    "idris" => arborium_idris,
+    "ini" => arborium_ini,
+    "javascript" => arborium_javascript,
+    "jinja2" => arborium_jinja2,
+    "jq" => arborium_jq,
+    "jsdoc" => arborium_jsdoc,
+    "json" => arborium_json,
+    "julia" => arborium_julia,
+    "just" => arborium_just,
+    "kconfig" => arborium_kconfig,
+    "kdl" => arborium_kdl,
+    "kotlin" => arborium_kotlin,
+    "lean" => arborium_lean,
+    "lua" => arborium_lua,
+    "make" => arborium_make,
+    "markdown" => arborium_markdown,
+    "matlab" => arborium_matlab,
+    "meson" => arborium_meson,
+    "ninja" => arborium_ninja,
+    "nix" => arborium_nix,
+    "objc" => arborium_objc,
+    "ocaml" => arborium_ocaml,
+    "odin" => arborium_odin,
+    "perl" => arborium_perl,
+    "php" => arborium_php,
+    "postscript" => arborium_postscript,
+    "powershell" => arborium_powershell,
+    "prolog" => arborium_prolog,
+    "proto" => arborium_proto,
+    "python" => arborium_python,
+    "query" => arborium_query,
+    "r" => arborium_r,
+    "regex" => arborium_regex,
+    "rego" => arborium_rego,
+    "rescript" => arborium_rescript,
+    "ron" => arborium_ron,
+    "ruby" => arborium_ruby,
+    "rust" => arborium_rust,
+    "scala" => arborium_scala,
+    "scheme" => arborium_scheme,
+    "scss" => arborium_scss,
+    "solidity" => arborium_solidity,
+    "sparql" => arborium_sparql,
+    "sql" => arborium_sql,
+    "ssh-config" => arborium_ssh_config,
+    "starlark" => arborium_starlark,
+    "styx" => arborium_styx,
+    "svelte" => arborium_svelte,
+    "swift" => arborium_swift,
+    "textproto" => arborium_textproto,
+    "thrift" => arborium_thrift,
+    "tlaplus" => arborium_tlaplus,
+    "toml" => arborium_toml,
+    "tsx" => arborium_tsx,
+    "typescript" => arborium_typescript,
+    "typst" => arborium_typst,
+    "uiua" => arborium_uiua,
+    "vb" => arborium_vb,
+    "verilog" => arborium_verilog,
+    "vhdl" => arborium_vhdl,
+    "vim" => arborium_vim,
+    "vue" => arborium_vue,
+    "wit" => arborium_wit,
+    "x86asm" => arborium_x86asm,
+    "xml" => arborium_xml,
+    "yaml" => arborium_yaml,
+    "yuri" => arborium_yuri,
+    "zig" => arborium_zig,
+    "zsh" => arborium_zsh,
+}

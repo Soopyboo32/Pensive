@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn catalog_recognizes_names_aliases_and_both_slashes_without_providers() {
+fn catalog_recognizes_names_aliases_and_both_slashes() {
     let registry = Registry::default();
     for (path, expected) in [
         ("src/app.js", "javascript"),
@@ -37,7 +37,9 @@ fn catalog_recognizes_names_aliases_and_both_slashes_without_providers() {
     ] {
         let selected = registry.resolve(path);
         assert_eq!(selected.language.as_str(), expected, "{path}");
-        assert_eq!(selected.provider(Capability::Syntax), None, "{path}");
+        if expected == "text" {
+            assert_eq!(selected.provider(Capability::Syntax), None, "{path}");
+        }
         assert_eq!(selected.provider(Capability::Semantic), None, "{path}");
     }
     assert_eq!(registry.language("CSharp"), registry.language("c-sharp"));
