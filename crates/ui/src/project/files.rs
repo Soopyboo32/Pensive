@@ -12,21 +12,28 @@ use super::{
     tree::{Entry, Open, RowKind, Shape, rows},
 };
 
+/// One row of a list of changed files in the current layout. Rows are laid out once and drawn
+/// only while they're on screen, so a commit with thousands of files stays quick.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) enum FileRow {
+    /// The file at this index of the list, `depth` folders in.
+    File { index: usize, depth: usize },
+    /// A folder of the tree layout, at `position` among its rows.
+    Folder {
+        name: String,
+        depth: usize,
+        position: usize,
+    },
+    /// A symbol of the file at index `file`.
+    Symbol { file: usize, symbol: usize },
+}
+
 impl ProjectView {
-    pub(super) fn file_rows(
-        &self,
-        source: &Source,
-        files: &[FileChange],
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let key = |file: &FileChange| FileKey {
-            source: source.clone(),
-            path: file.path.clone(),
-        };
+    /// The rows `files` from `source` lay out as.
+    pub(super) fn file_rows(&self, source: &Source, files: &[FileChange]) -> Vec<FileRow> {
         match self.layout {
-            FileLayout::List => files
-                .iter()
-                .map(|file| self.file_row(key(file), file, 0, cx).into_any_element())
+            FileLayout::List => (0..files.len())
+                .map(|index| FileRow::File { index, depth: 0 })
                 .collect(),
             FileLayout::Tree => {
                 let shape = Shape {
@@ -38,42 +45,78 @@ impl ProjectView {
                     .into_iter()
                     .enumerate()
                     .map(|(position, row)| match row.kind {
-                        RowKind::Folder { .. } => ListRow::new(("folder", position), row.name)
-                            .depth(row.depth)
-                            .disclosure(true)
-                            .muted()
-                            .into_any_element(),
-                        RowKind::File { index } => self
-                            .file_row(key(&files[index]), &files[index], row.depth, cx)
-                            .into_any_element(),
+                        RowKind::Folder { .. } => FileRow::Folder {
+                            name: row.name,
+                            depth: row.depth,
+                            position,
+                        },
+                        RowKind::File { index } => FileRow::File {
+                            index,
+                            depth: row.depth,
+                        },
                     })
                     .collect()
             }
             FileLayout::Symbols => {
                 let mut rows = Vec::new();
-                for file in files {
-                    let key = key(file);
-                    let open = !self.folded.contains(&key);
-                    let toggle = view_callback(cx, {
-                        let key = key.clone();
-                        move |this: &mut Self, _: &mut Window, cx: &mut Context<Self>| {
-                            this.toggle_folded(key.clone(), cx)
-                        }
-                    });
-                    rows.push(
-                        self.file_row(key.clone(), file, 0, cx)
-                            .disclosure(open)
-                            .on_disclosure(toggle)
-                            .into_any_element(),
-                    );
-                    if open {
-                        for symbol in 0..file.symbols.len() {
-                            rows.push(self.symbol_row(&key, file, symbol, cx));
-                        }
+                for (index, file) in files.iter().enumerate() {
+                    rows.push(FileRow::File { index, depth: 0 });
+                    if !self.folded.contains(&file_key(source, file)) {
+                        rows.extend((0..file.symbols.len()).map(|symbol| FileRow::Symbol {
+                            file: index,
+                            symbol,
+                        }));
                     }
                 }
                 rows
             }
+        }
+    }
+
+    /// Draws `row` of the list `files` from `source`.
+    pub(super) fn render_file_row(
+        &self,
+        source: &Source,
+        files: &[FileChange],
+        row: &FileRow,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match row {
+            FileRow::Folder {
+                name,
+                depth,
+                position,
+            } => ListRow::new(("folder", *position), name.clone())
+                .depth(*depth)
+                .disclosure(true)
+                .muted()
+                .into_any_element(),
+            FileRow::File { index, depth } => {
+                let Some(file) = files.get(*index) else {
+                    return div().into_any_element();
+                };
+                let key = file_key(source, file);
+                let row = self.file_row(key.clone(), file, *depth, cx);
+                if self.layout != FileLayout::Symbols {
+                    return row.into_any_element();
+                }
+                let open = !self.folded.contains(&key);
+                let toggle = view_callback(
+                    cx,
+                    move |this: &mut Self, _: &mut Window, cx: &mut Context<Self>| {
+                        this.toggle_folded(key.clone(), cx)
+                    },
+                );
+                row.disclosure(open)
+                    .on_disclosure(toggle)
+                    .into_any_element()
+            }
+            FileRow::Symbol { file, symbol } => match files.get(*file) {
+                Some(file_change) if *symbol < file_change.symbols.len() => {
+                    self.symbol_row(&file_key(source, file_change), file_change, *symbol, cx)
+                }
+                _ => div().into_any_element(),
+            },
         }
     }
 
@@ -195,6 +238,13 @@ fn path_label(file: &FileChange, cx: &App) -> impl IntoElement {
                 .text_color(theme.colors.text_strong)
                 .child(file.name()),
         )
+}
+
+fn file_key(source: &Source, file: &FileChange) -> FileKey {
+    FileKey {
+        source: source.clone(),
+        path: file.path.clone(),
+    }
 }
 
 fn element_name(key: &FileKey) -> String {

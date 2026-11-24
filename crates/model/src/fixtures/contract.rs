@@ -74,7 +74,7 @@ fn uncommitted_versions_match_the_files(backend: &dyn GitBackend, worktree: &Pat
 
 fn commit_versions_match_the_changes(backend: &dyn GitBackend, worktree: &Path) {
     let commits = backend.changes(worktree, 0).unwrap().commits;
-    let files = || commits.iter().flat_map(|commit| &commit.files);
+    let files = || commits.iter().flat_map(|commit| commit.files.iter());
     find(
         files(),
         &[FileStatus::Renamed],
@@ -86,7 +86,7 @@ fn commit_versions_match_the_changes(backend: &dyn GitBackend, worktree: &Path) 
         "a commit that deletes a file",
     );
     for commit in &commits {
-        for file in &commit.files {
+        for file in commit.files.iter() {
             checked_versions(backend, worktree, Source::Commit(commit.sha.clone()), file);
         }
     }

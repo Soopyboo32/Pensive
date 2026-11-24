@@ -1,6 +1,10 @@
 //! A worktree's uncommitted files and its branch's commits, with how far it is from its upstream.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use gpui::SharedString;
 
@@ -133,8 +137,10 @@ pub struct Commit {
     pub description: Option<SharedString>,
     /// Whether the upstream has it.
     pub pushed: bool,
-    /// Each file's change sits on its `index` side, so it shows as staged: all of it is in.
-    pub files: Vec<FileChange>,
+    /// Each file's change sits on its `index` side, so it shows as staged: all of it is in. A
+    /// commit never changes, so its files are shared: copying the changes to stage a file
+    /// doesn't copy every commit's files too.
+    pub files: Arc<[FileChange]>,
 }
 
 /// How a commit's `sha` shows.
@@ -211,6 +217,16 @@ impl Changes {
         }
     }
 
+    /// Stages or unstages all of each uncommitted file at `paths`, in one pass over the files.
+    pub fn set_staged_paths(&mut self, paths: &[PathBuf], staged: bool) {
+        let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        for file in &mut self.uncommitted {
+            if paths.contains(file.path.as_path()) {
+                file.set_staged(staged);
+            }
+        }
+    }
+
     pub fn set_all_staged(&mut self, staged: bool) {
         for file in &mut self.uncommitted {
             file.set_staged(staged);
@@ -226,7 +242,7 @@ impl Changes {
 
     /// The file `key` names, in the uncommitted list or its commit.
     pub fn find(&self, key: &FileKey) -> Option<&FileChange> {
-        let files = match &key.source {
+        let files: &[FileChange] = match &key.source {
             Source::Uncommitted => &self.uncommitted,
             Source::Commit(sha) => &self.commit(sha)?.files,
         };

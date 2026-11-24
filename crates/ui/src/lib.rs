@@ -5,6 +5,7 @@ mod age;
 mod demo_window;
 mod editor;
 mod fuzzy;
+mod list_splice;
 #[cfg(feature = "mocks")]
 mod mock_browser;
 #[cfg(feature = "mocks")]

@@ -109,7 +109,7 @@ fn log(
             sha: logged.sha.into(),
             title: logged.title.into(),
             description: logged.description.map(Into::into),
-            files: logged.files,
+            files: logged.files.into(),
         })
         .collect())
 }

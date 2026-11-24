@@ -9,6 +9,7 @@ mod other_projects;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use gpui::SharedString;
@@ -112,13 +113,14 @@ struct WorktreeSamples {
 
 impl WorktreeSamples {
     fn changes(self) -> Changes {
-        let changes =
-            |samples: Vec<Sample>| samples.into_iter().map(|sample| sample.change).collect();
+        let changes = |samples: Vec<Sample>| -> Vec<FileChange> {
+            samples.into_iter().map(|sample| sample.change).collect()
+        };
         let commits = |samples: Vec<SampleCommit>| {
             samples
                 .into_iter()
                 .map(|SampleCommit { commit, files }| Commit {
-                    files: changes(files),
+                    files: changes(files).into(),
                     ..commit
                 })
                 .collect()
@@ -147,7 +149,7 @@ impl SampleCommit {
                 title: SharedString::from(title.to_string()),
                 description: None,
                 pushed,
-                files: Vec::new(),
+                files: Arc::default(),
             },
             files,
         }
