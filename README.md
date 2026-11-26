@@ -16,15 +16,11 @@ Agent apps show their changes as a flat diff. From there you can't jump to a def
 
 ## What Pensive is for
 
-Working with agents means working in parallel, across several worktrees, branches and often projects, switching between them all day. Pensive is built so that every switch is instant. Opening a file, jumping to a commit and moving to another worktree never wait on an indexer.
+Working with agents means working in parallel, across several worktrees, branches and often projects. Pensive believes that every switch between these should be instant instant. Opening a file, jumping to a commit, and moving to another worktree should never wait on an indexer.
 
 When you get there, the context is already on screen: what changed, the history of the line you're on, where a function is defined and who calls it. That holds on any commit, not only the one checked out. The slow work happens in the background, and the interface never waits for it.
 
 Pensive also recognizes that indexing isn't binary, and strives to give users more configuration on what their LSP or custom indexer is actually doing. This means less memory, prioritized indexing, and the experience you choose.
-
-## How it feels
-
-The base is monochrome, and color shows up only when it means something, like an added line or a failed run. Git actions sit next to the changes they act on instead of in a menu. One palette, on Ctrl K, reaches every project, branch, command and setting. Any choice that comes down to taste is a setting, and each one ships with a default worth keeping.
 
 ## Download
 
