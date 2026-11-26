@@ -6,7 +6,7 @@ Pensive is in early development, and there's nothing to download yet.
 
 ## Why
 
-Most of our day as engineers goes to reading and judging code. I review a branch, check what an agent changed in its worktree, or trace a function back through its history. The tools I have each get part of that right.
+Most of our day as engineers goes to reading and judging code. We review a branch, check what an agent changed in its worktree, or trace a function back through its history. The tools we have each get part of that right.
 
 IntelliJ comes closest. Its index understands the code, it maps old commits onto the current checkout, and its Git tools are the best I've used. It's also slow. Indexing is meant to run in the background, but the indexing is heavy - with no tuning options - and somehow stalls the main thread. Switch branches or worktrees, and you're starting all over.
 
