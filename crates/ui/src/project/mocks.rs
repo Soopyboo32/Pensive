@@ -126,7 +126,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
         mock_window::mock("project", "renamed_and_conflicted", |window, cx| {
             mock_window::pensive(Some(HARBOR), window, cx).into()
         }),
-        mock_window::mock("project", "some_staged_dense", |window, cx| {
+        mock_window::fixed("project", "some_staged_dense", |window, cx| {
             cx.set_global(DensityPreset::Dense.density());
             framed(untouched, window, cx)
         }),
@@ -143,7 +143,7 @@ pub(crate) fn mocks() -> Vec<Mock> {
                 cx,
             )
         }),
-        mock_window::mock("files_panel", "dense", |window, cx| {
+        mock_window::fixed("files_panel", "dense", |window, cx| {
             cx.set_global(DensityPreset::Dense.density());
             framed(|view, _, cx| view.show_panel(Panel::Files, cx), window, cx)
         }),

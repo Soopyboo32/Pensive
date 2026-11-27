@@ -17,6 +17,10 @@
 //! exists, every later render is compared with its copy there: each one that changed is listed,
 //! with a picture of what changed in `target/mocks-diff`. A change is reported, never a failure,
 //! since changing how a view looks is the point of most UI work.
+//!
+//! `--matrix` renders window mocks across window sizes instead. See [`matrix`].
+
+mod matrix;
 
 use std::{
     any::Any,
@@ -50,10 +54,12 @@ const VALUE_OPTIONS: &[&str] = &[
 ];
 
 struct Args {
-    filter: String,
+    /// The words on the command line that aren't options. Only the first filters a normal run.
+    filters: Vec<String>,
     /// Whether matching nothing is a failure, as it is for `cargo mocks`.
     strict: bool,
     save_baseline: bool,
+    matrix: bool,
     /// How many saves run at once, and how many renders up to `MAX_RENDER_THREADS`. Taken from
     /// `--test-threads` or `RUST_TEST_THREADS`, as libtest does. With 1, mocks render one at a time
     /// on the main thread.
@@ -63,16 +69,16 @@ struct Args {
 impl Args {
     fn parse(mut args: impl Iterator<Item = String>) -> Self {
         let mut parsed = Self {
-            filter: String::new(),
+            filters: Vec::new(),
             strict: false,
             save_baseline: false,
+            matrix: false,
             threads: std::env::var("RUST_TEST_THREADS")
                 .ok()
                 .and_then(|threads| threads.parse().ok())
                 .unwrap_or_else(|| thread::available_parallelism().map_or(4, |count| count.get()))
                 .max(1),
         };
-        let mut filter = None;
         while let Some(arg) = args.next() {
             // An option's value follows it, or an `=` joins them.
             let (option, joined) = match arg.split_once('=') {
@@ -82,6 +88,7 @@ impl Args {
             match option {
                 "--only" => parsed.strict = true,
                 "--save-baseline" => parsed.save_baseline = true,
+                "--matrix" => parsed.matrix = true,
                 "--test-threads" => {
                     let value = joined.map(str::to_owned).or_else(|| args.next());
                     if let Some(threads) = value.and_then(|threads| threads.parse::<usize>().ok()) {
@@ -93,12 +100,15 @@ impl Args {
                         args.next();
                     }
                 }
-                _ if !arg.starts_with('-') && filter.is_none() => filter = Some(arg),
+                _ if !arg.starts_with('-') => parsed.filters.push(arg),
                 _ => {}
             }
         }
-        parsed.filter = filter.unwrap_or_default();
         parsed
+    }
+
+    fn filter(&self) -> &str {
+        self.filters.first().map_or("", String::as_str)
     }
 }
 
@@ -107,6 +117,7 @@ struct Folders {
     mocks: PathBuf,
     baseline: PathBuf,
     diff: PathBuf,
+    matrix: PathBuf,
 }
 
 impl Folders {
@@ -118,6 +129,7 @@ impl Folders {
             mocks: target.join("mocks"),
             baseline: target.join("mocks-baseline"),
             diff: target.join("mocks-diff"),
+            matrix: target.join("mocks-matrix"),
         }
     }
 }
@@ -144,6 +156,9 @@ const MAX_RENDER_THREADS: usize = 8;
 fn main() -> gpui::Result<ExitCode> {
     let args = Args::parse(std::env::args().skip(1));
     let folders = Arc::new(Folders::new());
+    if args.matrix {
+        return matrix::run(&args, &folders.matrix);
+    }
     let keep = if args.save_baseline {
         Keep::SaveBaseline
     } else if folders.baseline.is_dir() {
@@ -159,7 +174,7 @@ fn main() -> gpui::Result<ExitCode> {
     };
 
     let mocks = ui::every_mock();
-    let subjects = matching_subjects(&mocks, &args.filter);
+    let subjects = matching_subjects(&mocks, args.filter());
     let writer = Writer::new(args.threads);
     let mut headless = true;
     let mut rendered = 0;
@@ -186,7 +201,7 @@ fn main() -> gpui::Result<ExitCode> {
     }
 
     if rendered == 0 && failed.is_empty() {
-        eprintln!("no mock matches `{}`", args.filter);
+        eprintln!("no mock matches `{}`", args.filter());
         return Ok(if args.strict {
             ExitCode::FAILURE
         } else {
