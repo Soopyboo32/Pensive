@@ -6,6 +6,7 @@ pub mod diff;
 pub mod grid;
 #[cfg(not(target_family = "wasm"))]
 mod headless;
+pub mod matrix;
 
 #[cfg(not(target_family = "wasm"))]
 pub use atlas::Atlas;
@@ -22,6 +23,8 @@ pub struct Mock {
     pub subject: &'static str,
     pub name: &'static str,
     pub size: Size<Pixels>,
+    /// Whether `cargo mocks --matrix` renders it.
+    pub in_matrix: bool,
     content: Content,
 }
 
@@ -56,6 +59,7 @@ impl Mock {
             subject,
             name,
             size: size(px(960.), px(640.)),
+            in_matrix: false,
             content,
         }
     }
@@ -65,6 +69,14 @@ impl Mock {
     pub fn size(self, width: f32, height: f32) -> Self {
         Self {
             size: size(px(width), px(height)),
+            ..self
+        }
+    }
+
+    /// Renders it across the matrix's window sizes, zooms and densities.
+    pub fn in_matrix(self) -> Self {
+        Self {
+            in_matrix: true,
             ..self
         }
     }
@@ -88,10 +100,22 @@ impl Mock {
     /// Renders the mock at twice its size without opening a window, with the default theme and
     /// the bundled fonts and assets. Returns `None` on platforms with no headless renderer.
     pub fn render(&self) -> gpui::Result<Option<image::RgbaImage>> {
-        headless::render_headless(self.size, |window, cx| {
-            let view = self.build(window, cx);
-            cx.new(|_| headless::Frame(view))
+        headless::render_headless(self.size, |window, cx| self.frame(window, cx))
+    }
+
+    /// Renders the mock like `render`, in a window of `cell`'s size at its zoom and density.
+    #[expect(clippy::disallowed_methods, reason = "a matrix cell is in pixels")]
+    pub fn render_in(&self, cell: &matrix::Cell) -> gpui::Result<Option<image::RgbaImage>> {
+        let window_size = size(px(cell.size.width as f32), px(cell.size.height as f32));
+        headless::render_headless(window_size, |window, cx| {
+            theme::set_size(cell.density, cell.zoom, cx);
+            self.frame(window, cx)
         })
+    }
+
+    fn frame(&self, window: &mut Window, cx: &mut App) -> gpui::Entity<headless::Frame> {
+        let view = self.build(window, cx);
+        cx.new(|_| headless::Frame(view))
     }
 }
 

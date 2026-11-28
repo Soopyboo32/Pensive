@@ -1,0 +1,29 @@
+{
+  "skill_name": "responsiveness",
+  "evals": [
+    {
+      "id": 1,
+      "name": "named-view",
+      "prompt": "/responsiveness settings/appearance",
+      "expected_output": "The agent renders the matrix for settings/appearance, looks at the cramped cells first, and reports that at 200% zoom the side columns squeeze the main area or push it out of the window.",
+      "assertions": [
+        "The agent runs `cargo mocks --matrix` with a filter that matches settings/appearance",
+        "The agent looks at `720x480-zoom200-calm.png` or another `zoom200` image of settings/appearance",
+        "The report names the squeezed or missing main area, with the PNG's path",
+        "The report says which cells looked fine",
+        "The agent changes no code"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "fixed-mock",
+      "prompt": "/responsiveness settings/dense",
+      "expected_output": "settings/dense sets its own density, so the matrix leaves it out. The agent says so and adds no mock.",
+      "assertions": [
+        "The agent runs `cargo mocks --matrix settings/dense` and it reports that no window mock matches",
+        "The final message explains that the mock sets its own density, so the matrix leaves it out",
+        "The agent changes no code"
+      ]
+    }
+  ]
+}
