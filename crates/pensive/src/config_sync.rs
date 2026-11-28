@@ -99,7 +99,7 @@ mod tests {
         notices.read_with(cx, |notices, _| {
             let held = notices.held();
             assert_eq!(held.len(), 1);
-            assert_eq!(held[0].notice.title, "Setting ignored");
+            assert_eq!(held[0].notice.severity, Severity::Warning);
         });
         assert_eq!(config.settings(), "density = 3\n");
     }

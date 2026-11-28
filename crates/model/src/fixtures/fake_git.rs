@@ -233,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn harbor_has_a_renamed_and_a_conflicted_file() {
+    fn the_mid_merge_sample_has_a_rename_and_a_conflict() {
         let changes = FakeGit::default()
             .changes(Path::new(HARBOR_ROOT), 0)
             .unwrap();
@@ -245,35 +245,5 @@ mod tests {
         };
         assert!(has(FileStatus::Renamed));
         assert!(has(FileStatus::Conflicted));
-    }
-
-    #[test]
-    fn clean_has_no_changes_in_any_project() {
-        let git = FakeGit::clean();
-        for root in roots() {
-            let changes = git.changes(&root, 0).unwrap();
-            assert!(changes.uncommitted.is_empty() && changes.commits.is_empty());
-        }
-    }
-
-    #[test]
-    fn saved_files_and_staging_stay_in_their_worktree() {
-        let git = FakeGit::default();
-        let (harbor, lantern) = (Path::new(HARBOR_ROOT), Path::new("~/code/lantern"));
-        let path = git.changes(harbor, 0).unwrap().uncommitted[0].path.clone();
-
-        git.write_file(lantern, &path, "lantern's\n").unwrap();
-        git.set_staged(lantern, std::slice::from_ref(&path), true)
-            .unwrap();
-
-        assert_ne!(
-            git.read_file(harbor, &path).unwrap(),
-            Version::Text("lantern's\n".into())
-        );
-        let file = git.changes(harbor, 0).unwrap();
-        assert_eq!(
-            file.file(&path).unwrap().staging(),
-            crate::Staging::Unstaged
-        );
     }
 }

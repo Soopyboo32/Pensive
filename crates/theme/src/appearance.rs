@@ -167,20 +167,27 @@ mod tests {
         cx.update(|cx| {
             crate::init(cx);
             let label = |cx: &App| match CODE_SIZE.state(cx) {
-                ControlState::Stepper { label, .. } => label,
+                ControlState::Stepper { label, .. } => label.to_string(),
                 state => panic!("code size shows {state:?}"),
             };
-            assert_eq!(label(cx), "14 px");
+            let size_of = |preset: DensityPreset| preset.density().code.size.0 as u32;
+            let calm = size_of(DensityPreset::Calm);
+            let dense = size_of(DensityPreset::Dense);
+            assert_ne!(
+                calm, dense,
+                "the presets need different code sizes to tell apart"
+            );
+            assert_eq!(label(cx), format!("{calm} px"));
 
             CODE_SIZE.step(1, cx);
             apply(cx);
-            assert_eq!(CODE_SIZE.get(cx), Some(15));
-            assert_eq!(cx.density().code.line_height, Dp(23.));
+            assert_eq!(CODE_SIZE.get(cx), Some(calm + 1));
+            assert_eq!(cx.density().code.size, Dp((calm + 1) as f32));
 
             CODE_SIZE.step(-1, cx);
             assert_eq!(CODE_SIZE.get(cx), None);
             DENSITY.set(DensityPreset::Dense, cx);
-            assert_eq!(label(cx), "12 px");
+            assert_eq!(label(cx), format!("{dense} px"));
         });
     }
 

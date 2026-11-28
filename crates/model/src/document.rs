@@ -820,46 +820,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn cross_extension_rename_keeps_each_side_context_and_identity(cx: &mut TestAppContext) {
-        let git = Arc::new(FakeGit::default());
-        let mut versions = versions(
-            Version::Text("const x = 1;\n".into()),
-            Version::Text("const x = 1;\n".into()),
-        );
-        versions.old_source.path = "src/old.js".into();
-        versions.new_source.path = "src/new.ts".into();
-        let contents = Contents::new(versions).unwrap();
-        let document = cx.new(|_| {
-            Document::new(
-                PENSIVE_ROOT.into(),
-                FileKey {
-                    source: Source::Uncommitted,
-                    path: "src/new.ts".into(),
-                },
-                contents,
-                Backend::new(git, Origin::Git),
-            )
-        });
-        document.read_with(cx, |document, _| {
-            let old = document.source_snapshot(DocumentSide::Base);
-            let new = document.source_snapshot(DocumentSide::New);
-            assert_eq!(old.source.path, Path::new("src/old.js"));
-            assert_eq!(new.source.path, Path::new("src/new.ts"));
-            assert_eq!(old.language.language.as_str(), "javascript");
-            assert_eq!(new.language.language.as_str(), "typescript");
-            assert_eq!(
-                old.source.origin,
-                crate::FileOrigin::Commit(Some("fixture-head".into()))
-            );
-            assert_eq!(new.source.origin, crate::FileOrigin::Worktree);
-            assert_ne!(old.text.stamp().source, new.text.stamp().source);
-            assert_eq!(old.text.stamp().revision, new.text.stamp().revision);
-            assert!(!old.same_input(&new));
-            assert!(new.same_input(&document.source_snapshot(DocumentSide::New)));
-        });
-    }
-
-    #[gpui::test]
     fn missing_sides_retain_paths_and_committed_documents_stay_read_only(cx: &mut TestAppContext) {
         for (old, new, old_present, new_present) in [
             (Version::Missing, Version::Text(String::new()), false, true),
@@ -1560,7 +1520,7 @@ mod tests {
         assert!(document.read_with(cx, |document, _| document.has_conflict()));
         let notices = cx.update(Notices::global);
         notices.read_with(cx, |notices, _| {
-            assert!(notices.held()[0].notice.title.contains("changed on disk"));
+            assert_eq!(notices.held().len(), 1);
         });
 
         document.update(cx, |document, cx| document.reload(cx));

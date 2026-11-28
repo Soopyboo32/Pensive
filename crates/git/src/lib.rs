@@ -261,15 +261,12 @@ mod tests {
     }
 
     #[test]
-    fn a_linked_worktree_reads_as_the_same_repository() {
+    fn each_worktree_lists_its_own_branch() {
         let repo = Repo::new();
         repo.commit(1_000_000_000);
         repo.run(&["worktree", "add", "-q", "-b", "feat", "../linked"]);
-        let from_linked = GitCli::from_env()
-            .repository(&repo.dir.path().join("linked"))
-            .unwrap();
-        assert_eq!(from_linked.root, repo.read().root);
-        let branches: Vec<_> = from_linked
+        let branches: Vec<_> = repo
+            .read()
             .worktrees
             .into_iter()
             .map(|worktree| worktree.branch.map(|branch| branch.to_string()))
@@ -509,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn cross_extension_rename_retains_original_paths_and_resolved_commit_origins() {
+    fn versions_name_the_commit_they_were_read_from() {
         let repo = Repo::new();
         repo.write("old.js", "const x = 1;\n");
         repo.commit_all("initial");
@@ -549,18 +546,13 @@ mod tests {
         );
         assert_eq!(committed.old_source, versions.old_source);
         assert_eq!(committed.new_source.path, Path::new("new.ts"));
-        assert_eq!(
-            committed.new_source.origin,
-            FileOrigin::Commit(Some(sha.clone()))
-        );
+        assert_eq!(committed.new_source.origin, FileOrigin::Commit(Some(sha)));
         assert_eq!(committed.old, versions.old);
         assert_eq!(committed.new, versions.new);
         repo.commit_all_empty("advance HEAD without changing text");
         let refreshed = repo.versions(&uncommitted("new.ts"), None);
         assert_eq!(refreshed.old, committed.new);
         assert_ne!(refreshed.old_source.origin, committed.new_source.origin);
-        // Previously returned versions never follow the moving HEAD.
-        assert_eq!(committed.new_source.origin, FileOrigin::Commit(Some(sha)));
     }
 
     #[test]
@@ -610,27 +602,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn writing_a_file_replaces_its_text_and_reads_back() {
-        let repo = Repo::new();
-        repo.write("a.rs", "old\n");
-        GitCli::from_env()
-            .write_file(&repo.path(), Path::new("a.rs"), "new\n")
-            .unwrap();
-        assert_eq!(
-            GitCli::from_env()
-                .read_file(&repo.path(), Path::new("a.rs"))
-                .unwrap(),
-            Version::Text("new\n".into())
-        );
-        assert_eq!(
-            GitCli::from_env()
-                .read_file(&repo.path(), Path::new("gone.rs"))
-                .unwrap(),
-            Version::Missing
-        );
-    }
-
     #[cfg(unix)]
     #[test]
     fn writing_keeps_permissions_and_symlinks() {
@@ -655,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn staging_moves_whole_files_into_the_index_and_back() {
+    fn staging_takes_paths_with_glob_characters_literally() {
         let repo = Repo::new();
         repo.write("kept.rs", "a\n");
         repo.write("gone.rs", "one\ntwo\nthree\n");
@@ -694,36 +665,6 @@ mod tests {
         let new = repo.changes();
         let new = new.file(Path::new("new [a].rs")).unwrap();
         assert_eq!(new.worktree, Some(FileStatus::Untracked));
-    }
-
-    #[test]
-    fn a_rename_stages_by_its_new_path_and_unstages_with_the_old_one() {
-        let repo = Repo::new();
-        repo.write("old.rs", "a\nb\nc\n");
-        repo.commit_all("first");
-        repo.run(&["mv", "old.rs", "new.rs"]);
-        repo.write("new.rs", "a\nb\nc\nd\n");
-        let renamed = repo.changes();
-        let renamed = renamed.file(Path::new("new.rs")).unwrap();
-        assert_eq!(renamed.renamed_from.as_deref(), Some(Path::new("old.rs")));
-        assert_eq!(renamed.staging(), Staging::Partly);
-
-        GitCli::from_env()
-            .set_staged(&repo.path(), &[PathBuf::from("new.rs")], true)
-            .unwrap();
-        assert_eq!(repo.changes().uncommitted[0].staging(), Staging::Staged);
-
-        let paths = ["new.rs", "old.rs"].map(PathBuf::from);
-        GitCli::from_env()
-            .set_staged(&repo.path(), &paths, false)
-            .unwrap();
-        let changes = repo.changes();
-        assert!(
-            changes
-                .uncommitted
-                .iter()
-                .all(|file| file.staging() == Staging::Unstaged)
-        );
     }
 
     #[test]

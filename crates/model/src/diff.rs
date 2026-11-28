@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn a_large_file_with_many_changes_diffs_quickly() {
+    fn a_large_file_with_many_changes_finds_each_one() {
         let old = numbered(300_000);
         let new: String = (1..=300_000)
             .map(|line| match line % 5 {

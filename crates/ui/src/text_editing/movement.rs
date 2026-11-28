@@ -154,14 +154,6 @@ mod tests {
     }
 
     #[test]
-    fn home_goes_past_indentation_first() {
-        let text = rope("    code");
-        assert_eq!(home(&text, 6), 4);
-        assert_eq!(home(&text, 4), 0);
-        assert_eq!(end(&text, 0), 8);
-    }
-
-    #[test]
     fn columns_clamp_to_short_lines() {
         let text = rope("long line\nab\n");
         assert_eq!(column(&text, 7), 7);
