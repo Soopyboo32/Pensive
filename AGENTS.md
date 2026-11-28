@@ -14,6 +14,7 @@ Pensive is a review-first Git client written in Rust with GPUI.
 - Run `script/check` before you finish. It runs the checks CI runs and prints one line for each, then the output of any that failed. CI rejects any warning.
 - To check UI, run `cargo mocks <filter>` and open the PNGs it prints. It renders without a window or display, so use it instead of launching the app.
 - Before changing UI, run `cargo mocks --save-baseline`. Each `cargo mocks` after that lists the mocks whose pixels changed, with a picture of each change in `target/mocks-diff`. Check that only the mocks you meant to change are listed.
+- To check how a window's layout holds up at other window sizes and zooms, use the `responsiveness` skill, or run `cargo mocks --matrix <filter>` and look at the images, the 200% ones first.
 - To click through the app, open it in the T3 preview with the `web-preview` skill. `cargo mocks` is still how to check what a view looks like.
 
 ## Skills

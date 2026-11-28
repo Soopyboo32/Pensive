@@ -61,6 +61,8 @@ Each view declares named mocks next to its code: the view built from fixed data.
 
 `cargo mocks --save-baseline` also copies each render to `target/mocks-baseline`. While that folder exists, `cargo mocks` lists every mock whose render differs from its copy, and writes a picture of the change to `target/mocks-diff`, with the changed pixels in magenta. Renders on one machine come out identical every run, so any difference is a real change. Baselines stay on your machine: renders differ between GPUs and operating systems. GitHub's Windows runner can't render them yet (PEN-24). On Windows, mocks render with wgpu rather than the app's DirectX 11 renderer, so fine details of text can differ from the running app.
 
+`cargo mocks --matrix FILTER...` renders the window mocks that match at the window sizes people use, at 80% and 200% zoom in both densities, to `target/mocks-matrix/<subject>/<mock>/<cell>.png`. It doesn't run in CI. Mocks made with `mock_window::mock` are in it, and those made with `mock_window::fixed` aren't.
+
 ## GPUI
 
 crates.io stops at gpui 0.2.2, which can't render headless. We pin `gpui` and `gpui_platform` to a Zed release tag in the root `Cargo.toml`. To upgrade, change both tags together.
