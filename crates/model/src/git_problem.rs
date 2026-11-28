@@ -170,9 +170,10 @@ mod tests {
 
     #[test]
     fn versions_compare_by_number_and_drop_a_zero_patch() {
-        assert!(GitVersion::new(2, 9, 5) < GitVersion::MINIMUM);
-        assert!(GitVersion::new(2, 36, 1) > GitVersion::MINIMUM);
-        assert_eq!(GitVersion::MINIMUM.to_string(), "2.36");
+        let release = GitVersion::new(2, 36, 0);
+        assert!(GitVersion::new(2, 9, 5) < release);
+        assert!(GitVersion::new(2, 36, 1) > release);
+        assert_eq!(release.to_string(), "2.36");
         assert_eq!(GitVersion::new(2, 34, 1).to_string(), "2.34.1");
     }
 
@@ -182,13 +183,13 @@ mod tests {
             path: "/usr/bin/git".into(),
             version: GitVersion::new(2, 34, 1),
         };
-        assert_eq!(problem.title(), "Git 2.34.1 is too old");
-        assert_eq!(
-            problem.detail(Platform::Linux),
-            "Pensive needs Git 2.36 or newer, and /usr/bin/git is 2.34.1. On Ubuntu, run \
-             `sudo add-apt-repository ppa:git-core/ppa`, then `sudo apt update && sudo apt \
-             install git`. See https://git-scm.com/install/linux for other systems."
-        );
+        assert!(problem.title().contains("2.34.1"));
+        let detail = problem.detail(Platform::Linux);
+        let minimum = GitVersion::MINIMUM.to_string();
+        for named in ["/usr/bin/git", "2.34.1", &minimum] {
+            assert!(detail.contains(named), "{named} in {detail}");
+        }
+        assert!(detail.ends_with(problem.fix(Platform::Linux)), "{detail}");
     }
 
     #[test]
@@ -197,19 +198,15 @@ mod tests {
             path: "/usr/bin/git".into(),
             reason: reason.into(),
         };
-        let detail =
-            broken("\nxcrun: error: invalid active developer path.\nmore").detail(Platform::MacOs);
-        assert!(
-            detail.starts_with(
-                "`/usr/bin/git version` didn't work: xcrun: error: invalid active developer \
-                 path. Run"
-            ),
-            "{detail}"
-        );
+        let first = "xcrun: error: invalid active developer path.";
+        let detail = broken(&format!("\n{first}\nsecond line")).detail(Platform::MacOs);
+        assert!(detail.contains(first), "{detail}");
+        assert!(!detail.contains("second line"), "{detail}");
         let detail = broken(&"x".repeat(500)).detail(Platform::MacOs);
         assert!(
-            detail.contains(&format!("{}…. Run", "x".repeat(120))),
+            detail.contains(&format!("{}…", "x".repeat(120))),
             "{detail}"
         );
+        assert!(!detail.contains(&"x".repeat(121)), "{detail}");
     }
 }

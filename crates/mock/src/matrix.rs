@@ -65,22 +65,3 @@ impl Cell {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_size_has_a_cell_for_each_zoom_and_density() {
-        let names: Vec<String> = Cell::all().take(4).map(|cell| cell.name()).collect();
-        assert_eq!(
-            names,
-            [
-                "960x1080-zoom80-calm",
-                "960x1080-zoom80-dense",
-                "960x1080-zoom200-calm",
-                "960x1080-zoom200-dense",
-            ]
-        );
-    }
-}

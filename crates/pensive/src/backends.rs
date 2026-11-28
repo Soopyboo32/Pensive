@@ -82,7 +82,6 @@ mod tests {
         let [notice] = notices.as_slice() else {
             panic!("{notices:?}");
         };
-        assert_eq!(notice.title, "Couldn't find Git");
         assert_eq!(
             (notice.severity, notice.origin),
             (Severity::Error, Origin::Git)

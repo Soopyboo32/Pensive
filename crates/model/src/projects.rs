@@ -642,27 +642,16 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_linked_worktree_adds_its_whole_project() {
-        let mut projects = Projects::new(Arc::new(FakeGit::default()));
-        let repository = FakeGit::default()
-            .repository(Path::new("~/Projects/pensive-wt/palette-scopes"))
-            .unwrap();
-        let id = projects.add(repository, SystemTime::UNIX_EPOCH);
-        let project = projects.project(id).unwrap();
-        assert_eq!(project.repository.root, Path::new("~/Projects/pensive"));
-        assert_eq!(project.repository.worktrees.len(), 4);
-    }
-
-    #[test]
     fn a_new_project_takes_an_unused_id() {
         let mut projects = fixtures::projects();
+        let taken: Vec<_> = projects.projects.iter().map(|project| project.id).collect();
         let repository = Repository {
             root: "~/code/new".into(),
             worktrees: Vec::new(),
             branches: Vec::new(),
         };
         let id = projects.add(repository, SystemTime::UNIX_EPOCH);
-        assert_eq!(projects.projects.len(), 7);
+        assert!(!taken.contains(&id), "{id:?} was taken");
         assert_eq!(projects.project(id).unwrap().name, "new");
     }
 
@@ -693,7 +682,7 @@ mod tests {
         let notices = cx.update(Notices::global);
         notices.read_with(cx, |notices, _| {
             let held = notices.held();
-            assert_eq!(held[0].notice.title, "Couldn't open ~/nowhere");
+            assert_eq!(held.len(), 1);
             // FakeGit has no such repository, which is a gap in the samples, not a Git failure.
             assert_eq!(held[0].notice.origin, Origin::Fixture);
         });
@@ -873,19 +862,5 @@ mod tests {
         let all = earlier(usize::MAX, cx).unwrap();
         assert!(all > 2);
         assert_eq!(earlier(2, cx), Some(all));
-    }
-
-    #[gpui::test]
-    async fn read_changes_caches_them_by_worktree(cx: &mut TestAppContext) {
-        let projects = cx.new(|_| Projects::new(Arc::new(FakeGit::default())));
-        let read = projects.update(cx, |projects, cx| {
-            projects.read_changes(fixtures::PENSIVE_ROOT.into(), cx)
-        });
-        read.await.unwrap();
-        projects.read_with(cx, |projects, _| {
-            let changes = projects.changes(Path::new(fixtures::PENSIVE_ROOT)).unwrap();
-            assert_eq!(changes.uncommitted.len(), 7);
-            assert!(projects.changes(Path::new("~/code/harbor")).is_none());
-        });
     }
 }

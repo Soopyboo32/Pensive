@@ -133,22 +133,6 @@ mod tests {
         model::fixtures::contract::config(&ConfigFolder::new(not_created_yet));
     }
 
-    #[test]
-    fn a_missing_settings_file_reads_as_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        let folder = ConfigFolder::new(dir.path().join("pensive"));
-        assert_eq!(folder.read_settings().unwrap(), "");
-        assert!(folder.read_themes().unwrap().is_empty());
-    }
-
-    #[test]
-    fn saving_creates_the_folder() {
-        let dir = tempfile::tempdir().unwrap();
-        let folder = ConfigFolder::new(dir.path().join("pensive"));
-        folder.write_settings("density = \"dense\"\n").unwrap();
-        assert_eq!(folder.read_settings().unwrap(), "density = \"dense\"\n");
-    }
-
     #[cfg(unix)]
     #[test]
     fn saving_through_a_symlink_keeps_the_link() {

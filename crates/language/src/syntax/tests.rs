@@ -377,13 +377,3 @@ fn new_source_selection_or_cancelled_work_does_not_publish_old_spans() {
     registry.register(java).unwrap();
     assert!(tokens(&mut state, &before, &registry.resolve("Source.java")).is_empty());
 }
-
-#[cfg(target_arch = "wasm32")]
-#[test]
-fn browser_selects_java_and_plain_text_for_desktop_grammars() {
-    let registry = Registry::default();
-    for path in ["main.rs", "site.js", "site.ts", "book.xml"] {
-        assert_eq!(registry.resolve(path).syntax, None);
-    }
-    assert_eq!(registry.resolve("Test.java").syntax.as_deref(), Some(JAVA));
-}

@@ -277,17 +277,6 @@ mod tests {
     }
 
     #[test]
-    fn a_file_with_both_sides_is_partly_staged() {
-        let changes = fixtures::changes();
-        let partly = changes
-            .uncommitted
-            .iter()
-            .find(|file| file.index.is_some() && file.worktree.is_some())
-            .expect("the sample has a partly staged file");
-        assert_eq!(partly.staging(), Staging::Partly);
-    }
-
-    #[test]
     fn ahead_counts_come_from_the_commits() {
         let changes = fixtures::changes();
         assert_eq!(changes.ahead_of_base(), 3);

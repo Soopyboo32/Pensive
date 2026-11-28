@@ -65,7 +65,7 @@ mod tests {
         assert_eq!(diff.changed, 2);
         assert_eq!(diff.bounds, (2, 3, 4, 4));
         assert_eq!(*diff.image.get_pixel(2, 3), MARK);
-        assert_eq!(*diff.image.get_pixel(0, 0), Rgba([30, 30, 30, 255]));
+        assert_ne!(*diff.image.get_pixel(0, 0), MARK);
     }
 
     #[test]

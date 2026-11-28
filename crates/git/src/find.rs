@@ -256,11 +256,13 @@ mod tests {
     #[test]
     fn a_git_older_than_the_minimum_is_too_old() {
         let path = "/usr/bin/git";
-        assert_eq!(
-            judge(path.into(), "git version 2.34.1\n"),
-            Err(too_old(path))
-        );
-        assert!(judge(path.into(), "git version 2.36.0\n").is_ok());
+        let GitVersion { major, minor, .. } = GitVersion::MINIMUM;
+        let printed = |minor| format!("git version {major}.{minor}.0\n");
+        assert!(matches!(
+            judge(path.into(), &printed(minor - 1)),
+            Err(GitProblem::TooOld { .. })
+        ));
+        assert!(judge(path.into(), &printed(minor)).is_ok());
         assert!(matches!(
             judge(path.into(), "not git"),
             Err(GitProblem::Broken { .. })
